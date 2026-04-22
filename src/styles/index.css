@@ -1,0 +1,182 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global game styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #060a12;
+  color: #e2e8f0;
+  font-family: 'Rajdhani', sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0e17;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00f0ff44;
+}
+
+/* Tactical grid background */
+.tactical-grid {
+  background-image:
+    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Scan line effect */
+.scan-line::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 240, 255, 0.15),
+    transparent
+  );
+  animation: scanLine 3s linear infinite;
+}
+
+/* Neon text glow */
+.text-glow-cyan {
+  text-shadow:
+    0 0 10px rgba(0, 240, 255, 0.5),
+    0 0 30px rgba(0, 240, 255, 0.2);
+}
+
+.text-glow-orange {
+  text-shadow:
+    0 0 10px rgba(255, 107, 0, 0.5),
+    0 0 30px rgba(255, 107, 0, 0.2);
+}
+
+.text-glow-red {
+  text-shadow:
+    0 0 10px rgba(255, 45, 85, 0.5),
+    0 0 30px rgba(255, 45, 85, 0.2);
+}
+
+.text-glow-green {
+  text-shadow:
+    0 0 10px rgba(0, 255, 136, 0.5),
+    0 0 30px rgba(0, 255, 136, 0.2);
+}
+
+/* HUD border style */
+.hud-border {
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: rgba(10, 14, 23, 0.85);
+  backdrop-filter: blur(10px);
+}
+
+.hud-border-orange {
+  border: 1px solid rgba(255, 107, 0, 0.3);
+  background: rgba(10, 14, 23, 0.85);
+  backdrop-filter: blur(10px);
+}
+
+/* Corner brackets decoration */
+.corner-brackets {
+  position: relative;
+}
+.corner-brackets::before,
+.corner-brackets::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: rgba(0, 240, 255, 0.5);
+  border-style: solid;
+}
+.corner-brackets::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+.corner-brackets::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* Button styles */
+.btn-tactical {
+  position: relative;
+  padding: 12px 32px;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 1.1rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid rgba(0, 240, 255, 0.4);
+  background: rgba(0, 240, 255, 0.05);
+  color: #00f0ff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+.btn-tactical:hover {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: rgba(0, 240, 255, 0.7);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.2), inset 0 0 20px rgba(0, 240, 255, 0.05);
+}
+.btn-tactical:active {
+  transform: scale(0.97);
+}
+
+.btn-tactical-orange {
+  border-color: rgba(255, 107, 0, 0.4);
+  background: rgba(255, 107, 0, 0.05);
+  color: #ff6b00;
+}
+.btn-tactical-orange:hover {
+  background: rgba(255, 107, 0, 0.15);
+  border-color: rgba(255, 107, 0, 0.7);
+  box-shadow: 0 0 20px rgba(255, 107, 0, 0.2), inset 0 0 20px rgba(255, 107, 0, 0.05);
+}
+
+.btn-tactical-red {
+  border-color: rgba(255, 45, 85, 0.4);
+  background: rgba(255, 45, 85, 0.05);
+  color: #ff2d55;
+}
+.btn-tactical-red:hover {
+  background: rgba(255, 45, 85, 0.15);
+  border-color: rgba(255, 45, 85, 0.7);
+  box-shadow: 0 0 20px rgba(255, 45, 85, 0.2);
+}
+
+/* Animated background particles placeholder */
+.particle-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
