@@ -154,6 +154,7 @@ declare global {
       isMaximized: () => Promise<boolean>;
       fullscreen: () => Promise<void>;
       getDisplays: () => Promise<DisplayInfo[]>;
+      onDisplaysChanged: (callback: () => void) => () => void;
       openProjectorWindow: (displayIndex: number) => Promise<{ width: number; height: number }>;
       closeProjectorWindow: () => Promise<void>;
       sendToProjector: (data: ProjectorMessage) => Promise<void>;

@@ -1,8 +1,8 @@
-# Splatt — Technical Documentation
+# IR shooting training PoC — Technical Documentation
 
 ## Overview
 
-Splatt is a camera-based IR target shooting training system built with Electron and React. A projector displays digital targets on a wall. The shooter fires an IR gun at the projected target. A camera watches the wall, detects the IR hit, and maps it back to screen coordinates using a homography transform. The app scores the shot, displays feedback on both the control screen and the projector, and records session data to a local SQLite database.
+IR shooting training PoC is a camera-based IR target shooting training system built with Electron and React. A projector displays digital targets on a wall. The shooter fires an IR gun at the projected target. A camera watches the wall, detects the IR hit, and maps it back to screen coordinates using a homography transform. The app scores the shot, displays feedback on both the control screen and the projector, and records session data to a local SQLite database.
 
 There are no physical targets. Everything is digitally projected and scored.
 
@@ -45,7 +45,7 @@ There are no physical targets. Everything is digitally projected and scored.
 ## Project Structure
 
 ```
-splatt-electron/
+IR shooting training PoC-electron/
 ├── electron/                    # Electron main process (Node.js)
 │   ├── main.ts                  # App window management, IPC handlers, display enumeration
 │   ├── preload.ts               # Context bridge exposing IPC to renderer
@@ -357,7 +357,7 @@ Single Zustand store holding all application state:
 
 ## Database (`electron/database.ts`)
 
-SQLite database stored in Electron's `userData` directory (`splatt.db`). Uses `better-sqlite3` for synchronous operations in the main process.
+SQLite database stored in Electron's `userData` directory (`IR shooting training PoC.db`). Uses `better-sqlite3` for synchronous operations in the main process.
 
 **Tables:**
 
@@ -446,7 +446,7 @@ Custom CSS classes:
 
 ```bash
 # Install dependencies
-cd splatt-electron
+cd IR shooting training PoC-electron
 npm install
 
 # Development (Vite dev server + Electron)

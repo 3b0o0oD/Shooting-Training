@@ -113,26 +113,42 @@ function drawTarget(ctx: CanvasRenderingContext2D, target: TargetConfig, project
   const cx = screenW / 2 + projection.targetOffset.x;
   const cy = screenH / 2 + projection.targetOffset.y;
 
+  // IR-safe target: all colors are kept very dark so the camera (with its
+  // red/IR-pass filter) sees the target as near-black. Only the IR gun flash
+  // will register as a bright spot. We use blue/cyan tones for visual
+  // contrast on the projector — these are invisible through the red filter.
   const rings = [...target.scoringRings].reverse();
   for (let i = 0; i < rings.length; i++) {
     const ring = rings[i];
     const radius = ring.radiusPercent * targetRadius;
     const isEven = i % 2 === 0;
 
-    if (ring.score <= 3) ctx.fillStyle = isEven ? '#ffffff' : '#e8e8e8';
-    else if (ring.score <= 6) ctx.fillStyle = isEven ? '#222222' : '#333333';
-    else if (ring.score <= 9) ctx.fillStyle = isEven ? '#1a1a1a' : '#2a2a2a';
-    else ctx.fillStyle = target.bullseyeColor || '#ff2d55';
+    if (ring.score <= 3) {
+      // Outer rings: dark blue-gray alternating
+      ctx.fillStyle = isEven ? '#0a1628' : '#0d1e35';
+    } else if (ring.score <= 6) {
+      // Mid rings: darker blue-gray
+      ctx.fillStyle = isEven ? '#081220' : '#0a1628';
+    } else if (ring.score <= 9) {
+      // Inner rings: very dark
+      ctx.fillStyle = isEven ? '#060e1a' : '#081220';
+    } else {
+      // Bullseye (10): dark blue — NOT red, to avoid IR false triggers
+      ctx.fillStyle = '#001a44';
+    }
 
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+
+    // Ring borders: dim blue lines (invisible through red filter)
+    ctx.strokeStyle = 'rgba(0, 100, 200, 0.25)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
+    // Score labels: dim blue text
     if (ring.score >= 1 && ring.score <= 9) {
-      ctx.fillStyle = ring.score <= 3 ? '#000000' : '#ffffff';
+      ctx.fillStyle = 'rgba(0, 120, 220, 0.5)';
       ctx.font = `${Math.max(12, targetRadius * 0.06)}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -140,9 +156,10 @@ function drawTarget(ctx: CanvasRenderingContext2D, target: TargetConfig, project
     }
   }
 
+  // Center dot: dim blue
   ctx.beginPath();
   ctx.arc(cx, cy, Math.max(2, targetRadius * 0.01), 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = '#003388';
   ctx.fill();
 }
 
@@ -150,17 +167,22 @@ function drawHits(ctx: CanvasRenderingContext2D, hits: Array<{ position: Point2D
   hits.forEach((hit, index) => {
     const { x, y } = hit.position;
     const radius = hit.hitMarkerSize;
-    const hue = (hit.score / 10) * 120;
-    const color = `hsl(${hue}, 100%, 50%)`;
 
+    // Use blue/cyan tones for hit markers — invisible through the red IR filter
+    // so they won't cause false detections. Brightness varies by score.
+    const lightness = 30 + (hit.score / 10) * 30; // 30-60% lightness, still dim
+    const color = `hsl(210, 100%, ${lightness}%)`;
+
+    // Subtle glow
     const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius * 3);
-    gradient.addColorStop(0, `hsla(${hue}, 100%, 50%, 0.4)`);
+    gradient.addColorStop(0, `hsla(210, 100%, ${lightness}%, 0.3)`);
     gradient.addColorStop(1, 'transparent');
     ctx.beginPath();
     ctx.arc(x, y, radius * 3, 0, Math.PI * 2);
     ctx.fillStyle = gradient;
     ctx.fill();
 
+    // Hit dot
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fillStyle = color;
@@ -169,7 +191,8 @@ function drawHits(ctx: CanvasRenderingContext2D, hits: Array<{ position: Point2D
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.fillStyle = '#000';
+    // Shot number
+    ctx.fillStyle = '#ffffff';
     ctx.font = `bold ${Math.max(10, radius)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -181,17 +204,17 @@ function drawLiveCursor(ctx: CanvasRenderingContext2D, position: Point2D) {
   const { x, y } = position;
   const size = 20;
 
-  // Glow
+  // Blue glow — invisible through red IR filter
   const gradient = ctx.createRadialGradient(x, y, 0, x, y, size * 2);
-  gradient.addColorStop(0, 'rgba(0, 240, 255, 0.4)');
+  gradient.addColorStop(0, 'rgba(0, 100, 255, 0.4)');
   gradient.addColorStop(1, 'transparent');
   ctx.beginPath();
   ctx.arc(x, y, size * 2, 0, Math.PI * 2);
   ctx.fillStyle = gradient;
   ctx.fill();
 
-  // Crosshair
-  ctx.strokeStyle = '#00f0ff';
+  // Blue crosshair
+  ctx.strokeStyle = '#0066ff';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(x - size, y);
@@ -206,7 +229,7 @@ function drawLiveCursor(ctx: CanvasRenderingContext2D, position: Point2D) {
 
   ctx.beginPath();
   ctx.arc(x, y, 3, 0, Math.PI * 2);
-  ctx.fillStyle = '#00f0ff';
+  ctx.fillStyle = '#0066ff';
   ctx.fill();
 }
 
@@ -215,23 +238,36 @@ function drawCalibrationMarker(ctx: CanvasRenderingContext2D, position: Point2D,
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, screenW, screenH);
 
-  const size = 40;
-  const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00'];
-  const color = colors[markerIndex % colors.length];
+  // Marker sized to be clearly visible to the camera through the IR filter.
+  // Needs to be large enough to produce a clear brightness difference.
+  const size = Math.max(60, Math.min(screenW, screenH) * 0.05);
 
+  // Bright glow halo
+  const gradient = ctx.createRadialGradient(x, y, 0, x, y, size * 2);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+  gradient.addColorStop(0.4, 'rgba(255, 200, 200, 0.3)');
+  gradient.addColorStop(1, 'transparent');
+  ctx.beginPath();
+  ctx.arc(x, y, size * 2, 0, Math.PI * 2);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  // Solid bright white circle — main marker
   ctx.beginPath();
   ctx.arc(x, y, size / 2, 0, Math.PI * 2);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
 
+  // Red ring (visible through IR filter)
   ctx.beginPath();
-  ctx.arc(x, y, size / 2 + 4, 0, Math.PI * 2);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3;
+  ctx.arc(x, y, size / 2 + 6, 0, Math.PI * 2);
+  ctx.strokeStyle = '#ff3333';
+  ctx.lineWidth = 4;
   ctx.stroke();
 
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
+  // Red crosshair lines
+  ctx.strokeStyle = '#ff3333';
+  ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(x - size, y);
   ctx.lineTo(x + size, y);
@@ -239,13 +275,14 @@ function drawCalibrationMarker(ctx: CanvasRenderingContext2D, position: Point2D,
   ctx.lineTo(x, y + size);
   ctx.stroke();
 
-  ctx.fillStyle = color;
-  ctx.font = '16px monospace';
+  // Text labels — these are for the human eye on the projector screen,
+  // the camera doesn't need to read them
+  ctx.fillStyle = '#ff6666';
+  ctx.font = '20px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(`Point ${markerIndex + 1} of 4`, x, y + size + 24);
+  ctx.fillText(`Point ${markerIndex + 1}`, x, y + size + 30);
 
-  ctx.fillStyle = '#666666';
-  ctx.font = '14px sans-serif';
+  ctx.fillStyle = '#888888';
+  ctx.font = '16px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Aim your IR gun at this marker and fire', screenW / 2, screenH - 40);
 }

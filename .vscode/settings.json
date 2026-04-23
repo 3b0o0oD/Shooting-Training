@@ -1,0 +1,14 @@
+{
+  "terminal.integrated.defaultProfile.windows": "Git Bash",
+  "terminal.integrated.profiles.windows": {
+    "Git Bash": {
+      "source": "Git Bash"
+    },
+    "PowerShell": {
+      "source": "PowerShell"
+    },
+    "Command Prompt": {
+      "source": "Command Prompt"
+    }
+  }
+}

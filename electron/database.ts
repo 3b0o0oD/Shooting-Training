@@ -7,7 +7,7 @@ let db: Database.Database | null = null;
 export function getDatabase(): Database.Database {
   if (db) return db;
 
-  const dbPath = path.join(app.getPath('userData'), 'splatt.db');
+  const dbPath = path.join(app.getPath('userData'), 'IR shooting training PoC.db');
   db = new Database(dbPath);
 
   // Enable WAL mode for better concurrent read performance

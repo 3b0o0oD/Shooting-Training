@@ -35,17 +35,27 @@ export function SettingsScreen() {
       setCameras(videoDevices);
     });
 
+    refreshDisplays();
+
+    const api = window.electronAPI;
+    if (api?.onDisplaysChanged) {
+      const cleanup = api.onDisplaysChanged(() => refreshDisplays());
+      return cleanup;
+    }
+  }, []);
+
+  const refreshDisplays = () => {
     const api = window.electronAPI;
     if (api?.getDisplays) {
       api.getDisplays().then((d: DisplayInfo[]) => setDisplays(d));
     }
-  }, []);
+  };
 
-  const tabs: { id: SettingsTab; label: string; icon: string }[] = [
-    { id: 'camera', label: 'Camera', icon: '📷' },
-    { id: 'projection', label: 'Projection', icon: '📽' },
-    { id: 'detection', label: 'Detection', icon: '🎯' },
-    { id: 'target', label: 'Target', icon: '⊕' },
+  const tabs: { id: SettingsTab; label: string;  }[] = [
+    { id: 'camera', label: 'Camera' },
+    { id: 'projection', label: 'Projection'},
+    { id: 'detection', label: 'Detection' },
+    { id: 'target', label: 'Target' },
   ];
 
   return (
@@ -63,7 +73,7 @@ export function SettingsScreen() {
             className="font-hud text-3xl text-tactical-yellow tracking-[0.2em]"
             style={{ textShadow: '0 0 20px rgba(255, 214, 0, 0.3)' }}
           >
-            ARMORY
+            Shooting training simulator
           </h2>
           <div className="text-sm text-slate-500 font-tactical tracking-wider mt-1">
             System Configuration
@@ -82,7 +92,7 @@ export function SettingsScreen() {
                   : 'text-slate-500 hover:text-slate-300'
               }`}
             >
-              <span>{tab.icon}</span>
+              {/* <span>{tab.icon}</span> */}
               {tab.label}
             </button>
           ))}
@@ -158,18 +168,30 @@ export function SettingsScreen() {
           {activeTab === 'projection' && (
             <div className="space-y-6">
               <SettingGroup label="Projector Display">
-                <select
-                  value={projectionConfig.displayIndex}
-                  onChange={(e) => setProjectionConfig({ displayIndex: Number(e.target.value) })}
-                  className="w-full bg-tactical-darker border border-tactical-border rounded px-3 py-2 text-sm text-slate-300 font-mono focus:border-tactical-accent outline-none"
-                >
-                  {displays.map((d, i) => (
-                    <option key={d.id} value={i}>
-                      {d.label}
-                    </option>
-                  ))}
-                  {displays.length === 0 && <option value={0}>Display 1 (default)</option>}
-                </select>
+                <div className="flex gap-2">
+                  <select
+                    value={projectionConfig.displayIndex}
+                    onChange={(e) => setProjectionConfig({ displayIndex: Number(e.target.value) })}
+                    className="flex-1 bg-tactical-darker border border-tactical-border rounded px-3 py-2 text-sm text-slate-300 font-mono focus:border-tactical-accent outline-none"
+                  >
+                    {displays.map((d, i) => (
+                      <option key={d.id} value={i}>
+                        {d.label}
+                      </option>
+                    ))}
+                    {displays.length === 0 && <option value={0}>No displays detected</option>}
+                  </select>
+                  <button
+                    onClick={refreshDisplays}
+                    className="px-3 py-2 border border-tactical-border rounded text-sm text-slate-400 hover:text-tactical-accent hover:border-tactical-accent transition-colors font-mono"
+                    title="Refresh displays"
+                  >
+                    ↻
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-500 font-mono mt-1">
+                  {displays.length} display(s) detected
+                </div>
               </SettingGroup>
 
               <SliderSetting
@@ -257,14 +279,14 @@ export function SettingsScreen() {
               <SliderSetting
                 label="Brightness Threshold"
                 value={detectionConfig.brightnessThreshold}
-                min={50}
+                min={5}
                 max={255}
                 onChange={(v) => setDetectionConfig({ brightnessThreshold: v })}
               />
               <SliderSetting
                 label="Flash Spike Multiplier"
                 value={detectionConfig.flashSpikeMultiplier}
-                min={1.5}
+                min={1.1}
                 max={5}
                 step={0.1}
                 onChange={(v) => setDetectionConfig({ flashSpikeMultiplier: v })}
@@ -272,8 +294,8 @@ export function SettingsScreen() {
               <SliderSetting
                 label="Minimum Brightness"
                 value={detectionConfig.minBrightness}
-                min={10}
-                max={150}
+                min={3}
+                max={100}
                 onChange={(v) => setDetectionConfig({ minBrightness: v })}
               />
               <SliderSetting

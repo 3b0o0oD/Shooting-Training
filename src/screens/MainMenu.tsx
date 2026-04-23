@@ -15,12 +15,12 @@ const menuItems = [
     description: 'Setup and calibrate your system',
     color: 'orange',
   },
-  {
-    label: 'Results',
-    screen: 'results' as const,
-    description: 'View session history and stats',
-    color: 'green',
-  },
+  // {
+  //   label: 'Results',
+  //   screen: 'results' as const,
+  //   description: 'View session history and stats',
+  //   color: 'green',
+  // },
   {
     label: 'Settings',
     screen: 'settings' as const,
@@ -32,8 +32,8 @@ const menuItems = [
 const colorMap: Record<string, string> = {
   cyan: '#00f0ff',
   orange: '#ff6b00',
-  green: '#00ff88',
-  yellow: '#ffd600',
+  // green: '#00ff88',
+  yellow: '#ebff0dff',
 };
 
 export function MainMenu() {
@@ -62,15 +62,15 @@ export function MainMenu() {
         className="relative z-10 mb-16 text-center"
       >
         <h1 className="font-hud text-7xl font-black tracking-[0.2em] text-tactical-accent text-glow-cyan">
-          SPLATT
+          SHOOTING TRAINING - PoC
         </h1>
-        <div className="flex items-center justify-center gap-3 mt-3">
+        {/* <div className="flex items-center justify-center gap-3 mt-3">
           <div className="h-px w-16 bg-gradient-to-r from-transparent to-tactical-accent/50" />
           <span className="font-tactical text-sm tracking-[0.4em] text-slate-400 uppercase">
             Target Training System
           </span>
           <div className="h-px w-16 bg-gradient-to-l from-transparent to-tactical-accent/50" />
-        </div>
+        </div> */}
       </motion.div>
 
       {/* Menu items */}
@@ -144,9 +144,9 @@ export function MainMenu() {
         transition={{ delay: 1 }}
         className="absolute bottom-6 text-center z-10"
       >
-        <p className="text-[10px] text-slate-600 font-mono tracking-wider">
-          IR DETECTION SYSTEM • CAMERA BASED • NO AUDIO
-        </p>
+        {/* <p className="text-[10px] text-slate-600 font-mono tracking-wider">
+          Shooting trainig simulator
+        </p> */}
       </motion.div>
     </div>
   );

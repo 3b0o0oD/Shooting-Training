@@ -15,19 +15,18 @@ function createWindow() {
     height: 1080,
     minWidth: 1280,
     minHeight: 720,
-    frame: false,
-    titleBarStyle: 'hidden',
+    frame: true,
     backgroundColor: '#060a12',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      backgroundThrottling: false,
     },
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
@@ -62,14 +61,30 @@ ipcMain.handle('window:fullscreen', () => {
 ipcMain.handle('displays:getAll', () => {
   const displays = screen.getAllDisplays();
   const primary = screen.getPrimaryDisplay();
-  return displays.map((d, i) => ({
-    id: d.id,
-    label: `Display ${i + 1}${d.id === primary.id ? ' (Primary)' : ''} — ${d.size.width}×${d.size.height}`,
-    width: d.size.width,
-    height: d.size.height,
-    isPrimary: d.id === primary.id,
-    bounds: d.bounds,
-  }));
+  console.log(`[displays] Found ${displays.length} display(s):`);
+  const result = displays.map((d, i) => {
+    const info = {
+      id: d.id,
+      label: `Display ${i + 1}${d.id === primary.id ? ' (Primary)' : ''} — ${d.size.width}×${d.size.height}`,
+      width: d.size.width,
+      height: d.size.height,
+      isPrimary: d.id === primary.id,
+      bounds: d.bounds,
+    };
+    console.log(`  [${i}] ${info.label} bounds=(${d.bounds.x},${d.bounds.y})`);
+    return info;
+  });
+  return result;
+});
+
+// Notify renderer when displays change
+app.whenReady().then(() => {
+  screen.on('display-added', () => {
+    mainWindow?.webContents.send('displays:changed');
+  });
+  screen.on('display-removed', () => {
+    mainWindow?.webContents.send('displays:changed');
+  });
 });
 
 // ─── Projector window management ───

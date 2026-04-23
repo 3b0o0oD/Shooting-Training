@@ -3,12 +3,12 @@ import type { Point2D, CalibrationProfile, CalibrationPoint } from '../types';
 /**
  * Calibration Engine — Homography-based camera-to-screen mapping
  *
- * The projector displays 4 known markers at screen coordinates.
+ * The projector displays markers at known screen coordinates.
  * The camera sees those markers at camera coordinates.
  * We compute a 3x3 homography matrix that maps any camera point → screen point.
  *
- * This handles perspective distortion from the camera viewing the projection
- * wall at an angle, different zoom levels, rotation, etc.
+ * With 4 points we get an exact solution. With more points (8+) we get a
+ * least-squares solution that is more robust to noise.
  */
 export class CalibrationEngine {
   private profile: CalibrationProfile;
@@ -19,23 +19,20 @@ export class CalibrationEngine {
 
   /**
    * Transform a camera coordinate to a screen coordinate using the homography.
-   * Returns null if no valid homography exists.
    */
   cameraToScreen(cameraPoint: Point2D): Point2D | null {
     const H = this.profile.homography;
     if (!H || H.length !== 9) return null;
 
-    // Apply 3x3 homography: [x', y', w'] = H * [x, y, 1]
     const x = cameraPoint.x;
     const y = cameraPoint.y;
 
     const w = H[6] * x + H[7] * y + H[8];
-    if (Math.abs(w) < 1e-10) return null; // Degenerate
+    if (Math.abs(w) < 1e-10) return null;
 
     const sx = (H[0] * x + H[1] * y + H[2]) / w;
     const sy = (H[3] * x + H[4] * y + H[5]) / w;
 
-    // Apply manual offset
     return {
       x: sx + this.profile.manualOffset.x,
       y: sy + this.profile.manualOffset.y,
@@ -43,25 +40,21 @@ export class CalibrationEngine {
   }
 
   /**
-   * Compute the homography from 4+ calibration point pairs.
-   * Uses Direct Linear Transform (DLT) algorithm.
-   *
-   * Each pair: { screen: where we projected, camera: where camera saw it }
-   * We want H such that: screen = H * camera
+   * Compute the homography from 4+ calibration point pairs using DLT.
+   * With more than 4 points, uses least-squares via the normal equations
+   * (A^T A h = A^T b) for a more accurate, noise-resistant result.
    */
   computeHomography(points: CalibrationPoint[]): CalibrationProfile {
     if (points.length < 4) {
       throw new Error('Need at least 4 calibration points for homography');
     }
 
-    // Build the system of equations for DLT
-    // For each point pair (camera → screen), we get 2 equations:
-    // -x*h1 - y*h2 - h3 + sx*x*h7 + sx*y*h8 + sx*h9 = 0  (... but rearranged)
-    //
-    // We solve Ah = 0 where h = [h1..h9] flattened from H
-
-    const n = points.length;
+    // Build the DLT equation system.
+    // For each point pair we get 2 rows in A.
+    // We set h[8] = 1 and move that column to the RHS.
+    const rows = points.length * 2;
     const A: number[][] = [];
+    const b: number[] = [];
 
     for (const p of points) {
       const cx = p.camera.x;
@@ -69,12 +62,27 @@ export class CalibrationEngine {
       const sx = p.screen.x;
       const sy = p.screen.y;
 
-      A.push([cx, cy, 1, 0, 0, 0, -sx * cx, -sx * cy, -sx]);
-      A.push([0, 0, 0, cx, cy, 1, -sy * cx, -sy * cy, -sy]);
+      // Row for sx equation
+      A.push([cx, cy, 1, 0, 0, 0, -sx * cx, -sx * cy]);
+      b.push(sx); // moved -sx * h8 to RHS, h8=1 → RHS = sx
+
+      // Row for sy equation
+      A.push([0, 0, 0, cx, cy, 1, -sy * cx, -sy * cy]);
+      b.push(sy);
     }
 
-    // Solve using SVD-like approach (simplified for 4 points: solve 8x9 system)
-    const H = this.solveDLT(A);
+    let h: number[];
+
+    if (rows === 8) {
+      // Exactly 4 points → direct solve (8×8 system)
+      h = this.solveLinear(A, b);
+    } else {
+      // Over-determined → least-squares via normal equations: (A^T A) h = A^T b
+      const { AtA, Atb } = this.normalEquations(A, b);
+      h = this.solveLinear(AtA, Atb);
+    }
+
+    const H = [...h, 1]; // h[8] = 1
 
     // Calculate reprojection error
     let totalError = 0;
@@ -100,34 +108,46 @@ export class CalibrationEngine {
   }
 
   /**
-   * Solve the DLT system Ah = 0 using Gaussian elimination.
-   * Returns the 9-element homography vector, normalized so h[8] = 1.
+   * Compute A^T A and A^T b for least-squares.
    */
-  private solveDLT(A: number[][]): number[] {
-    const rows = A.length;  // 2*n (at least 8)
-    const cols = 9;
+  private normalEquations(A: number[][], b: number[]): { AtA: number[][]; Atb: number[] } {
+    const m = A.length;    // rows
+    const n = A[0].length; // cols (8)
 
-    // We need to solve for the null space of A.
-    // For exactly 4 points (8 equations, 9 unknowns), we can set h[8]=1
-    // and solve the 8x8 system.
+    const AtA: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+    const Atb: number[] = new Array(n).fill(0);
 
-    // Build 8x8 system: move the h[8] column to the right side
-    const M: number[][] = [];
-    const b: number[] = [];
-
-    for (let i = 0; i < Math.min(rows, 8); i++) {
-      const row: number[] = [];
-      for (let j = 0; j < 8; j++) {
-        row.push(A[i][j]);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        let sum = 0;
+        for (let k = 0; k < m; k++) {
+          sum += A[k][i] * A[k][j];
+        }
+        AtA[i][j] = sum;
       }
-      M.push(row);
-      b.push(-A[i][8]); // Move h[8]=1 term to RHS
+      let sum = 0;
+      for (let k = 0; k < m; k++) {
+        sum += A[k][i] * b[k];
+      }
+      Atb[i] = sum;
     }
 
-    // Gaussian elimination with partial pivoting
-    const n = 8;
+    return { AtA, Atb };
+  }
+
+  /**
+   * Solve an n×n linear system Mx = rhs using Gaussian elimination
+   * with partial pivoting.
+   */
+  private solveLinear(M_in: number[][], rhs_in: number[]): number[] {
+    const n = M_in.length;
+    // Clone to avoid mutating input
+    const M = M_in.map((row) => [...row]);
+    const rhs = [...rhs_in];
+
+    // Forward elimination
     for (let col = 0; col < n; col++) {
-      // Find pivot
+      // Partial pivoting
       let maxVal = Math.abs(M[col][col]);
       let maxRow = col;
       for (let row = col + 1; row < n; row++) {
@@ -136,11 +156,9 @@ export class CalibrationEngine {
           maxRow = row;
         }
       }
-
-      // Swap rows
       if (maxRow !== col) {
         [M[col], M[maxRow]] = [M[maxRow], M[col]];
-        [b[col], b[maxRow]] = [b[maxRow], b[col]];
+        [rhs[col], rhs[maxRow]] = [rhs[maxRow], rhs[col]];
       }
 
       // Eliminate below
@@ -149,27 +167,23 @@ export class CalibrationEngine {
         for (let j = col; j < n; j++) {
           M[row][j] -= factor * M[col][j];
         }
-        b[row] -= factor * b[col];
+        rhs[row] -= factor * rhs[col];
       }
     }
 
     // Back substitution
-    const h = new Array(8).fill(0);
+    const x = new Array(n).fill(0);
     for (let i = n - 1; i >= 0; i--) {
-      let sum = b[i];
+      let sum = rhs[i];
       for (let j = i + 1; j < n; j++) {
-        sum -= M[i][j] * h[j];
+        sum -= M[i][j] * x[j];
       }
-      h[i] = sum / M[i][i];
+      x[i] = sum / M[i][i];
     }
 
-    // h[8] = 1
-    return [...h, 1];
+    return x;
   }
 
-  /**
-   * Nudge the manual offset (applied after homography transform)
-   */
   nudgeOffset(dx: number, dy: number): CalibrationProfile {
     this.profile = {
       ...this.profile,
@@ -181,9 +195,6 @@ export class CalibrationEngine {
     return { ...this.profile };
   }
 
-  /**
-   * Reset manual offset
-   */
   resetOffset(): CalibrationProfile {
     this.profile = {
       ...this.profile,
@@ -201,5 +212,38 @@ export class CalibrationEngine {
       this.profile.homography.length === 9 &&
       this.profile.homography.some((v) => v !== 0)
     );
+  }
+
+  /**
+   * Compute the camera-space bounding box of the projected screen area.
+   * Uses the calibration points to determine where the screen appears
+   * in the camera frame. Returns an ROI with some padding.
+   */
+  getCameraROI(cameraWidth: number, cameraHeight: number, padding = 0.1): { x: number; y: number; w: number; h: number } | null {
+    const points = this.profile.calibrationPoints;
+    if (points.length < 4) return null;
+
+    // Get the bounding box of all camera-side calibration points
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of points) {
+      minX = Math.min(minX, p.camera.x);
+      minY = Math.min(minY, p.camera.y);
+      maxX = Math.max(maxX, p.camera.x);
+      maxY = Math.max(maxY, p.camera.y);
+    }
+
+    // Add padding (percentage of the ROI size)
+    const roiW = maxX - minX;
+    const roiH = maxY - minY;
+    const padX = roiW * padding;
+    const padY = roiH * padding;
+
+    // Clamp to camera bounds
+    const x = Math.max(0, Math.floor(minX - padX));
+    const y = Math.max(0, Math.floor(minY - padY));
+    const w = Math.min(cameraWidth - x, Math.ceil(roiW + padX * 2));
+    const h = Math.min(cameraHeight - y, Math.ceil(roiH + padY * 2));
+
+    return { x, y, w, h };
   }
 }

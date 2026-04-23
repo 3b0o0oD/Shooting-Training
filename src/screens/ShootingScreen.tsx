@@ -33,7 +33,7 @@ export function ShootingScreen() {
     toggleDebug,
   } = useAppStore();
 
-  const { videoRef, isReady, error } = useCamera(cameraConfig);
+  const { videoRef, isReady, error, switchPreset, autoAdjustTrackingExposure } = useCamera(cameraConfig);
   const [currentTrace, setCurrentTrace] = useState<Point2D[]>([]);
   const [lastShotFeedback, setLastShotFeedback] = useState<Shot | null>(null);
   const [irPosition, setIrPosition] = useState<Point2D | null>(null);
@@ -104,6 +104,7 @@ export function ShootingScreen() {
             const api = window.electronAPI;
             if (api?.sendToProjector) {
               api.sendToProjector({ type: 'show-hit', position: screenPos, score, hitMarkerSize: projectionConfig.hitMarkerSize });
+              console.log(`[ShootingScreen] Hit sent to projector: pos=(${Math.round(screenPos.x)},${Math.round(screenPos.y)}) score=${score}`);
             }
 
             setTimeout(() => setLastShotFeedback(null), 2000);
@@ -117,7 +118,69 @@ export function ShootingScreen() {
     [isPaused, isCalibrated, currentTrace, addShot]
   );
 
-  useDetectionLoop(videoRef.current, detectionConfig, isReady && !isPaused, handleFrame);
+  const [baselineReady, setBaselineReady] = useState(false);
+
+  const { reset: resetDetector, captureBaseline, setROI } = useDetectionLoop(videoRef.current, detectionConfig, isReady && !isPaused && baselineReady, handleFrame);
+
+  // Setup: switch to tracking mode, adjust exposure, capture baseline.
+  // Only runs once the camera is ready.
+  useEffect(() => {
+    if (!isReady) return;
+
+    setBaselineReady(false);
+    resetDetector();
+
+    const setup = async () => {
+      // Use calibration preset (saturation=0, black & white) — same settings
+      // that worked for shot detection during calibration testing
+      await switchPreset('calibration');
+      console.log('[ShootingScreen] Using calibration preset for shooting');
+
+      // Wait for camera to settle after preset switch
+      await new Promise(r => setTimeout(r, 600));
+
+      // Compute ROI first so we can sample within it
+      let roi: { x: number; y: number; w: number; h: number } | null = null;
+      if (isCalibrated && calibrationProfile.calibrationPoints.length >= 4) {
+        roi = calibrationEngine.current.getCameraROI(
+          cameraConfig.width,
+          cameraConfig.height,
+        );
+        if (roi) {
+          setROI(roi);
+          console.log('[ShootingScreen] ROI set:', roi);
+        }
+      }
+
+      // Use the exposure that was found during calibration
+      // (stored in cameraConfig.exposure). This avoids the oscillation
+      // problem with auto-adjustment.
+      if (cameraConfig.exposure) {
+        const stream = videoRef.current?.srcObject as MediaStream | null;
+        const track = stream?.getVideoTracks()[0];
+        if (track) {
+          try {
+            await track.applyConstraints({
+              advanced: [{ exposureMode: 'manual', exposureTime: cameraConfig.exposure } as any],
+            } as any);
+            console.log(`[ShootingScreen] Using calibration exposure: ${cameraConfig.exposure}µs`);
+          } catch { /* ignore */ }
+        }
+      }
+
+      // Wait for camera to fully settle, then capture baseline
+      await new Promise(r => setTimeout(r, 1000));
+      captureBaseline();
+      console.log('[ShootingScreen] Baseline capture started');
+
+      // Wait for baseline to complete (~30 frames at 30fps = ~1 second)
+      await new Promise(r => setTimeout(r, 1500));
+      setBaselineReady(true);
+      console.log('[ShootingScreen] Detection active');
+    };
+
+    setup();
+  }, [isReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcuts
   useEffect(() => {

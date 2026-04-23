@@ -87,18 +87,18 @@ const DEFAULT_TARGET: TargetConfig = {
 
 const DEFAULT_DETECTION: DetectionConfig = {
   mode: 'flash',
-  brightnessThreshold: 200,
-  flashSpikeMultiplier: 2.5,
-  dwellRadius: 8,
-  dwellTime: 200,
+  brightnessThreshold: 20,
+  flashSpikeMultiplier: 1.5,
+  dwellRadius: 10,
+  dwellTime: 150,
   blurRadius: 11,
-  minBrightness: 50,
+  minBrightness: 10,
 };
 
 const DEFAULT_CAMERA: CameraConfig = {
   deviceId: '',
-  width: 640,
-  height: 480,
+  width: 1920,
+  height: 1080,
   flipHorizontal: false,
   flipVertical: false,
 };

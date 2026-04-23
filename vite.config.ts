@@ -27,24 +27,14 @@ export default defineConfig({
         },
       },
       {
-        entry: 'electron/preload.ts',
-        onstart(options) {
-          options.reload();
-        },
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            lib: {
-              entry: 'electron/preload.ts',
-              formats: ['cjs'],
-            },
-            rollupOptions: {
-              external: ['electron'],
-              output: {
-                entryFileNames: 'preload.js',
-              },
-            },
-          },
+        entry: 'electron/preload.js',
+        onstart({ reload }) {
+          // The preload.js is already valid CJS — just copy it to dist-electron
+          import('fs').then(fs => {
+            fs.mkdirSync('dist-electron', { recursive: true });
+            fs.copyFileSync('electron/preload.js', 'dist-electron/preload.js');
+            reload();
+          });
         },
       },
     ]),

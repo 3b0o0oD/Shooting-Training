@@ -1,15 +1,15 @@
 {
-  "name": "splatt",
+  "name":  "ir-shooting-training-poc",
   "version": "1.0.0",
   "type": "module",
-  "description": "Splatt - IR Target Shooting Training System",
+  "description": "IR Target Shooting Training System",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "electron:dev": "vite",
-    "electron:build": "tsc && vite build && electron-builder",
+    "edev": "vite",
+    "ebuild": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx"
   },
   "dependencies": {
@@ -23,7 +23,7 @@
     "framer-motion": "^10.18.0",
     "gsap": "^3.12.4",
     "recharts": "^2.10.3",
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^12.2.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
@@ -35,7 +35,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
-    "electron": "^28.1.0",
+    "electron": "^32.0.0",
     "electron-builder": "^24.9.1",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
@@ -46,8 +46,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.splatt.app",
-    "productName": "Splatt",
+    "appId": "com.IR shooting training PoC.app",
+    "productName": "IR shooting training PoC",
     "files": [
       "dist/**/*",
       "dist-electron/**/*"

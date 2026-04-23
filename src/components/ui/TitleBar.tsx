@@ -30,7 +30,7 @@ export function TitleBar() {
       <div className="flex items-center gap-2">
         <div className="w-3 h-3 bg-tactical-accent rounded-sm opacity-80" />
         <span className="font-hud text-[10px] tracking-[0.3em] text-tactical-accent/70 uppercase">
-          Splatt
+          IR shooting training PoC
         </span>
         <span className="text-[9px] text-slate-600 font-mono ml-2">v1.0.0</span>
       </div>
