@@ -48,7 +48,7 @@ export function useCamera(config: CameraConfig) {
           deviceId: config.deviceId ? { exact: config.deviceId } : undefined,
           width: { ideal: config.width },
           height: { ideal: config.height },
-          frameRate: { ideal: 30 },
+          frameRate: { ideal: 60, min: 30 },
         },
         audio: false,
       };

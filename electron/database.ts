@@ -1,99 +1,93 @@
-import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import { app } from 'electron';
 
-let db: Database.Database | null = null;
+/**
+ * JSON-based config storage — replaces SQLite.
+ * Stores calibration, camera settings, sessions, and profiles
+ * in a single JSON file in the user data directory.
+ */
 
-export function getDatabase(): Database.Database {
-  if (db) return db;
-
-  const dbPath = path.join(app.getPath('userData'), 'IR shooting training PoC.db');
-  db = new Database(dbPath);
-
-  // Enable WAL mode for better concurrent read performance
-  db.pragma('journal_mode = WAL');
-
-  // Create tables
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS profiles (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      avatar TEXT,
-      created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
-    );
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      profile_id TEXT,
-      target_id TEXT NOT NULL,
-      target_config TEXT NOT NULL,
-      calibration_config TEXT,
-      mode TEXT NOT NULL DEFAULT 'practice',
-      start_time INTEGER NOT NULL,
-      end_time INTEGER,
-      FOREIGN KEY (profile_id) REFERENCES profiles(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS shots (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      camera_x REAL NOT NULL,
-      camera_y REAL NOT NULL,
-      screen_x REAL NOT NULL,
-      screen_y REAL NOT NULL,
-      score INTEGER NOT NULL,
-      timestamp INTEGER NOT NULL,
-      trace_points TEXT,
-      FOREIGN KEY (session_id) REFERENCES sessions(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS calibrations (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      homography TEXT NOT NULL,
-      calibration_points TEXT NOT NULL,
-      manual_offset_x REAL NOT NULL DEFAULT 0,
-      manual_offset_y REAL NOT NULL DEFAULT 0,
-      reprojection_error REAL NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_shots_session ON shots(session_id);
-    CREATE INDEX IF NOT EXISTS idx_sessions_profile ON sessions(profile_id);
-  `);
-
-  return db;
+interface ConfigData {
+  calibrations: Record<string, any>;
+  profiles: Record<string, any>;
+  sessions: Record<string, any>;
+  shots: Record<string, any[]>; // sessionId -> shots[]
+  lastCalibrationId: string | null;
 }
+
+let configPath = '';
+let data: ConfigData = {
+  calibrations: {},
+  profiles: {},
+  sessions: {},
+  shots: {},
+  lastCalibrationId: null,
+};
+
+function getConfigPath(): string {
+  if (!configPath) {
+    configPath = path.join(app.getPath('userData'), 'shooting-config.json');
+  }
+  return configPath;
+}
+
+function loadConfig(): ConfigData {
+  try {
+    const filePath = getConfigPath();
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      data = JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error('[config] Failed to load config:', e);
+  }
+  return data;
+}
+
+function saveConfig() {
+  try {
+    const filePath = getConfigPath();
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[config] Failed to save config:', e);
+  }
+}
+
+// Initialize on first import
+loadConfig();
 
 // ─── Profile operations ───
 
 export function getAllProfiles() {
-  const db = getDatabase();
-  const rows = db.prepare(`
-    SELECT p.*,
-      COUNT(DISTINCT s.id) as sessions,
-      COUNT(sh.id) as total_shots,
-      COALESCE(AVG(sh.score), 0) as average_score,
-      COALESCE(MAX(sh.score), 0) as best_score
-    FROM profiles p
-    LEFT JOIN sessions s ON s.profile_id = p.id
-    LEFT JOIN shots sh ON sh.session_id = s.id
-    GROUP BY p.id
-    ORDER BY p.created_at DESC
-  `).all();
-  return rows;
+  return Object.values(data.profiles).map((p: any) => {
+    const sessions = Object.values(data.sessions).filter((s: any) => s.profile_id === p.id);
+    const allShots = sessions.flatMap((s: any) => data.shots[s.id] || []);
+    return {
+      ...p,
+      sessions: sessions.length,
+      total_shots: allShots.length,
+      average_score: allShots.length > 0 ? allShots.reduce((s: number, sh: any) => s + sh.score, 0) / allShots.length : 0,
+      best_score: allShots.length > 0 ? Math.max(...allShots.map((sh: any) => sh.score)) : 0,
+    };
+  });
 }
 
 export function createProfile(id: string, name: string) {
-  const db = getDatabase();
-  db.prepare('INSERT INTO profiles (id, name) VALUES (?, ?)').run(id, name);
+  data.profiles[id] = { id, name, created_at: Date.now() };
+  saveConfig();
 }
 
 export function deleteProfile(id: string) {
-  const db = getDatabase();
-  db.prepare('DELETE FROM shots WHERE session_id IN (SELECT id FROM sessions WHERE profile_id = ?)').run(id);
-  db.prepare('DELETE FROM sessions WHERE profile_id = ?').run(id);
-  db.prepare('DELETE FROM profiles WHERE id = ?').run(id);
+  // Delete associated sessions and shots
+  Object.values(data.sessions)
+    .filter((s: any) => s.profile_id === id)
+    .forEach((s: any) => {
+      delete data.shots[s.id];
+      delete data.sessions[s.id];
+    });
+  delete data.profiles[id];
+  saveConfig();
 }
 
 // ─── Session operations ───
@@ -107,46 +101,48 @@ export function createSession(
   mode: string,
   startTime: number
 ) {
-  const db = getDatabase();
-  db.prepare(`
-    INSERT INTO sessions (id, profile_id, target_id, target_config, calibration_config, mode, start_time)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, profileId, targetId, targetConfig, calibrationConfig, mode, startTime);
+  data.sessions[id] = {
+    id, profile_id: profileId, target_id: targetId,
+    target_config: targetConfig, calibration_config: calibrationConfig,
+    mode, start_time: startTime, end_time: null,
+  };
+  data.shots[id] = [];
+  saveConfig();
 }
 
 export function endSession(id: string, endTime: number) {
-  const db = getDatabase();
-  db.prepare('UPDATE sessions SET end_time = ? WHERE id = ?').run(endTime, id);
+  if (data.sessions[id]) {
+    data.sessions[id].end_time = endTime;
+    saveConfig();
+  }
 }
 
 export function getAllSessions(profileId?: string) {
-  const db = getDatabase();
-  let query = `
-    SELECT s.*,
-      COUNT(sh.id) as shot_count,
-      COALESCE(SUM(sh.score), 0) as total_score,
-      COALESCE(AVG(sh.score), 0) as avg_score
-    FROM sessions s
-    LEFT JOIN shots sh ON sh.session_id = s.id
-  `;
+  let sessions = Object.values(data.sessions) as any[];
   if (profileId) {
-    query += ' WHERE s.profile_id = ?';
-    query += ' GROUP BY s.id ORDER BY s.start_time DESC';
-    return db.prepare(query).all(profileId);
+    sessions = sessions.filter((s: any) => s.profile_id === profileId);
   }
-  query += ' GROUP BY s.id ORDER BY s.start_time DESC';
-  return db.prepare(query).all();
+  return sessions
+    .sort((a: any, b: any) => b.start_time - a.start_time)
+    .map((s: any) => {
+      const shots = data.shots[s.id] || [];
+      return {
+        ...s,
+        shot_count: shots.length,
+        total_score: shots.reduce((sum: number, sh: any) => sum + sh.score, 0),
+        avg_score: shots.length > 0 ? shots.reduce((sum: number, sh: any) => sum + sh.score, 0) / shots.length : 0,
+      };
+    });
 }
 
 export function getSession(id: string) {
-  const db = getDatabase();
-  return db.prepare('SELECT * FROM sessions WHERE id = ?').get(id);
+  return data.sessions[id] || null;
 }
 
 export function deleteSession(id: string) {
-  const db = getDatabase();
-  db.prepare('DELETE FROM shots WHERE session_id = ?').run(id);
-  db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+  delete data.shots[id];
+  delete data.sessions[id];
+  saveConfig();
 }
 
 // ─── Shot operations ───
@@ -162,25 +158,26 @@ export function addShot(
   timestamp: number,
   tracePoints: string | null
 ) {
-  const db = getDatabase();
-  db.prepare(`
-    INSERT INTO shots (id, session_id, camera_x, camera_y, screen_x, screen_y, score, timestamp, trace_points)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, sessionId, cameraX, cameraY, screenX, screenY, score, timestamp, tracePoints);
+  if (!data.shots[sessionId]) data.shots[sessionId] = [];
+  data.shots[sessionId].push({
+    id, session_id: sessionId,
+    camera_x: cameraX, camera_y: cameraY,
+    screen_x: screenX, screen_y: screenY,
+    score, timestamp, trace_points: tracePoints,
+  });
+  saveConfig();
 }
 
 export function getShotsForSession(sessionId: string) {
-  const db = getDatabase();
-  return db.prepare('SELECT * FROM shots WHERE session_id = ? ORDER BY timestamp ASC').all(sessionId);
+  return (data.shots[sessionId] || []).sort((a: any, b: any) => a.timestamp - b.timestamp);
 }
 
 export function deleteLastShot(sessionId: string) {
-  const db = getDatabase();
-  db.prepare(`
-    DELETE FROM shots WHERE id = (
-      SELECT id FROM shots WHERE session_id = ? ORDER BY timestamp DESC LIMIT 1
-    )
-  `).run(sessionId);
+  const shots = data.shots[sessionId];
+  if (shots && shots.length > 0) {
+    shots.pop();
+    saveConfig();
+  }
 }
 
 // ─── Calibration operations ───
@@ -194,26 +191,25 @@ export function saveCalibration(
   manualOffsetY: number,
   reprojectionError: number
 ) {
-  const db = getDatabase();
-  db.prepare(`
-    INSERT OR REPLACE INTO calibrations (id, name, homography, calibration_points, manual_offset_x, manual_offset_y, reprojection_error)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, homography, calibrationPoints, manualOffsetX, manualOffsetY, reprojectionError);
+  data.calibrations[id] = {
+    id, name, homography, calibration_points: calibrationPoints,
+    manual_offset_x: manualOffsetX, manual_offset_y: manualOffsetY,
+    reprojection_error: reprojectionError,
+    created_at: Date.now(),
+  };
+  data.lastCalibrationId = id;
+  saveConfig();
 }
 
 export function getAllCalibrations() {
-  const db = getDatabase();
-  return db.prepare('SELECT * FROM calibrations ORDER BY created_at DESC').all();
+  return Object.values(data.calibrations).sort((a: any, b: any) => b.created_at - a.created_at);
 }
 
 export function getCalibration(id: string) {
-  const db = getDatabase();
-  return db.prepare('SELECT * FROM calibrations WHERE id = ?').get(id);
+  return data.calibrations[id] || null;
 }
 
 export function closeDatabase() {
-  if (db) {
-    db.close();
-    db = null;
-  }
+  // Save any pending changes
+  saveConfig();
 }

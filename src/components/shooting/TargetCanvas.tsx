@@ -42,7 +42,7 @@ export function TargetCanvas({
     const scaleY = displayHeight / projection.height;
 
     // Clear
-    ctx.fillStyle = '#0a0e17';
+    ctx.fillStyle = '#870202ff';
     ctx.fillRect(0, 0, displayWidth, displayHeight);
 
     // Draw target rings (same layout as projector)

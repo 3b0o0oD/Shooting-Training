@@ -127,6 +127,7 @@ export interface CameraConfig {
 export type AppScreen =
   | 'main-menu'
   | 'shooting'
+  | 'speed-drill'
   | 'calibration'
   | 'results'
   | 'settings'
@@ -159,6 +160,22 @@ declare global {
       closeProjectorWindow: () => Promise<void>;
       sendToProjector: (data: ProjectorMessage) => Promise<void>;
       onProjectorMessage: (callback: (data: ProjectorMessage) => void) => () => void;
+
+      // Database / Config
+      dbGetCalibrations: () => Promise<any[]>;
+      dbGetCalibration: (id: string) => Promise<any>;
+      dbSaveCalibration: (...args: any[]) => Promise<void>;
+      dbGetProfiles: () => Promise<any[]>;
+      dbCreateProfile: (id: string, name: string) => Promise<void>;
+      dbDeleteProfile: (id: string) => Promise<void>;
+      dbCreateSession: (...args: any[]) => Promise<void>;
+      dbEndSession: (id: string, endTime: number) => Promise<void>;
+      dbGetSessions: (profileId?: string) => Promise<any[]>;
+      dbGetSession: (id: string) => Promise<any>;
+      dbDeleteSession: (id: string) => Promise<void>;
+      dbAddShot: (...args: any[]) => Promise<void>;
+      dbGetShotsForSession: (sessionId: string) => Promise<any[]>;
+      dbDeleteLastShot: (sessionId: string) => Promise<void>;
     };
   }
 }
@@ -176,4 +193,8 @@ export type ProjectorMessage =
   | { type: 'show-calibration-marker'; position: Point2D; markerIndex: number }
   | { type: 'show-hit'; position: Point2D; score: number; hitMarkerSize: number }
   | { type: 'clear' }
-  | { type: 'blank' };
+  | { type: 'blank' }
+  | { type: 'speed-drill-target'; position: Point2D; radius: number; id: number }
+  | { type: 'speed-drill-hit'; targetId: number }
+  | { type: 'speed-drill-miss'; targetId: number }
+  | { type: 'speed-drill-clear' };

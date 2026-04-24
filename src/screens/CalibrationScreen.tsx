@@ -444,7 +444,23 @@ export function CalibrationScreen() {
   const handleComplete = () => {
     setCalibrated(true);
     setStep('complete');
+
+    // Save calibration to disk via IPC
     const api = window.electronAPI;
+    const profile = calibrationProfile;
+    if (api?.dbSaveCalibration) {
+      api.dbSaveCalibration(
+        profile.id,
+        profile.name,
+        JSON.stringify(profile.homography),
+        JSON.stringify(profile.calibrationPoints),
+        profile.manualOffset.x,
+        profile.manualOffset.y,
+        profile.reprojectionError,
+      );
+      console.log('[Calibration] Saved to disk');
+    }
+
     const { activeTarget, projectionConfig: proj } = useAppStore.getState();
     if (api?.sendToProjector) {
       api.sendToProjector({ type: 'show-target', target: activeTarget, projection: proj });

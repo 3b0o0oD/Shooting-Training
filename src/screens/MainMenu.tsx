@@ -10,17 +10,17 @@ const menuItems = [
     color: 'cyan',
   },
   {
+    label: 'Speed Drill',
+    screen: 'speed-drill' as const,
+    description: 'Hit random targets before they disappear',
+    color: 'green',
+  },
+  {
     label: 'Calibration',
     screen: 'calibration' as const,
     description: 'Setup and calibrate your system',
     color: 'orange',
   },
-  // {
-  //   label: 'Results',
-  //   screen: 'results' as const,
-  //   description: 'View session history and stats',
-  //   color: 'green',
-  // },
   {
     label: 'Settings',
     screen: 'settings' as const,
@@ -32,7 +32,7 @@ const menuItems = [
 const colorMap: Record<string, string> = {
   cyan: '#00f0ff',
   orange: '#ff6b00',
-  // green: '#00ff88',
+  green: '#00ff88',
   yellow: '#ebff0dff',
 };
 

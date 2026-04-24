@@ -18,7 +18,7 @@ export default defineConfig({
               formats: ['es'],
             },
             rollupOptions: {
-              external: ['electron', 'path', 'url', 'better-sqlite3'],
+              external: ['electron', 'path', 'url', 'fs'],
               output: {
                 entryFileNames: 'main.js',
               },

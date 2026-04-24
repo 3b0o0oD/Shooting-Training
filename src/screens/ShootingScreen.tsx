@@ -293,7 +293,7 @@ export function ShootingScreen() {
             animate={{ opacity: 1, y: 0 }}
             className="hud-border-orange px-6 py-3 text-center"
           >
-            <div className="text-tactical-orange font-hud text-sm tracking-wider">⚠ NOT CALIBRATED</div>
+            <div className="text-tactical-orange font-hud text-sm tracking-wider">NOT CALIBRATED</div>
             <p className="text-xs text-slate-500 mt-1">
               Shots won't map correctly.{' '}
               <button className="text-tactical-accent underline" onClick={() => setScreen('calibration')}>

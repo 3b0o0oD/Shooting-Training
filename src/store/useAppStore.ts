@@ -67,7 +67,7 @@ interface AppState {
 
 const DEFAULT_TARGET: TargetConfig = {
   id: 'standard-10ring',
-  name: 'Standard 10-Ring',
+  name: 'Standard 10-Rings',
   scoringRings: [
     { score: 10, radiusPercent: 0.05 },
     { score: 9, radiusPercent: 0.15 },
@@ -81,24 +81,24 @@ const DEFAULT_TARGET: TargetConfig = {
     { score: 1, radiusPercent: 1.0 },
   ],
   gaugingMethod: 'inward',
-  bullseyeColor: '#ff2d55',
+  bullseyeColor: '#002d55',
   backgroundColor: '#0a0e17',
 };
 
 const DEFAULT_DETECTION: DetectionConfig = {
   mode: 'flash',
-  brightnessThreshold: 20,
+  brightnessThreshold: 15,
   flashSpikeMultiplier: 1.5,
   dwellRadius: 10,
   dwellTime: 150,
   blurRadius: 11,
-  minBrightness: 10,
+  minBrightness: 5,
 };
 
 const DEFAULT_CAMERA: CameraConfig = {
   deviceId: '',
-  width: 1920,
-  height: 1080,
+  width: 640,
+  height: 480,
   flipHorizontal: false,
   flipVertical: false,
 };

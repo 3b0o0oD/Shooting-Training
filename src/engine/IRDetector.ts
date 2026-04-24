@@ -38,6 +38,13 @@ export class IRDetector {
   private readonly baselineFramesNeeded = 30;
   private isCapturingBaseline = false;
 
+  // Rolling baseline update: after a shot, we blend the current frame
+  // into the baseline so the bullet hole marker doesn't trigger re-detection.
+  private pendingBaselineUpdate = false;
+  private baselineUpdateDelay = 0; // frames to wait before updating
+  private readonly BASELINE_UPDATE_WAIT = 5; // wait 5 frames after shot for projector to render the hit
+  private readonly BASELINE_BLEND_ALPHA = 0.3; // blend 30% of new frame into baseline
+
   // Rolling baseline brightness for UI display
   private baselineBrightness = 0;
 
@@ -51,13 +58,23 @@ export class IRDetector {
 
   // Shot cooldown
   private lastShotTime = 0;
-  private readonly shotCooldown = 250; // ms — laser pulse spans ~3-6 frames at 30fps
+  private readonly shotCooldown = 200; // ms
 
-  // Track the current flash across frames to pick the peak
-  private flashStartTime = 0;
-  private flashPeakBrightness = 0;
-  private flashPeakPosition: Point2D | null = null;
-  private inFlash = false;
+  // ── Line-to-Point Recoil Detection ──
+  // Instead of finding a single bright frame, we build a line across
+  // multiple frames and use the first point as the shot position.
+  private lineTracking = false;
+  private currentLine: Array<{ x: number; y: number; brightness: number }> = [];
+  private inactiveFrames = 0;
+
+  // Recoil detection parameters
+  private readonly enterThreshold = 40;    // brightness to start tracking
+  private readonly exitThreshold = 20;     // brightness to stop (hysteresis)
+  private readonly connectedDistance = 50;  // max pixels between consecutive points
+  private readonly breakDistance = 80;      // distance to split into segments
+  private readonly minLineLength = 1;      // accept even single-pixel flashes
+  private readonly maxLineLength = 500;    // accept long recoil sweeps
+  private readonly inactiveFramesLimit = 2; // end line faster for quicker response
 
   // Logging
   private frameCount = 0;
@@ -67,8 +84,8 @@ export class IRDetector {
   private hotPixelMask: Map<number, number> = new Map(); // index -> timestamp
   private hotPixelCandidates: Map<string, number> = new Map();
   private readonly hotPixelRadius = 5;
-  private readonly hotPixelFrames = 20;
-  private readonly hotPixelExpiry = 15000; // ms — masks expire after 15 seconds
+  private readonly hotPixelFrames = 30;     // more frames needed to confirm (avoid masking real targets)
+  private readonly hotPixelExpiry = 5000;   // ms — expire faster so areas reopen
 
   // Region of Interest — only scan within the projected screen area
   // Stored in processing-resolution coordinates
@@ -158,6 +175,25 @@ export class IRDetector {
     for (let i = 0; i < pixelCount; i++) {
       const idx = i * 4;
       bright[i] = Math.max(data[idx], data[idx + 1], data[idx + 2]);
+    }
+
+    // ── Rolling baseline update ──
+    // After a shot is detected, we wait a few frames for the projector to
+    // render the hit marker, then blend the current frame into the baseline.
+    // This prevents the hit marker from triggering re-detection.
+    if (this.pendingBaselineUpdate && this.baseline) {
+      this.baselineUpdateDelay++;
+      if (this.baselineUpdateDelay >= this.BASELINE_UPDATE_WAIT) {
+        // Blend current frame into baseline
+        const alpha = this.BASELINE_BLEND_ALPHA;
+        for (let i = 0; i < pixelCount; i++) {
+          this.baseline[i] = Math.round(
+            this.baseline[i] * (1 - alpha) + bright[i] * alpha
+          );
+        }
+        this.pendingBaselineUpdate = false;
+        this.baselineUpdateDelay = 0;
+      }
     }
 
     // ── Baseline capture mode ──
@@ -407,9 +443,8 @@ export class IRDetector {
         blobArea = area;
       }
 
-      // Filter by blob size: laser dot is 2-80 pixels at 480p,
-      // but with hand movement it can streak to 500+ pixels
-      if (blobArea >= 1 && blobArea <= 500) {
+      // Filter by blob size — accept wide range for different shot types
+      if (blobArea >= 1 && blobArea <= 1000) {
         position = {
           x: centroidX * this.scaleX,
           y: centroidY * this.scaleY,
@@ -423,53 +458,78 @@ export class IRDetector {
       this.peakHistory.shift();
     }
 
-    // ── Shot detection with recoil compensation ──
-    // A laser pulse spans multiple frames. With hand movement/recoil,
-    // the laser sweeps across the screen. We use the FIRST frame position
-    // (pre-recoil, where the shooter was actually aiming) rather than
-    // the peak brightness frame (which may be mid-sweep).
+    // ── Line-to-Point Recoil Shot Detection ──
+    // Build a line across frames from the laser sweep, then use the
+    // first point (pre-recoil aim) as the shot position.
     let shotDetected = false;
+    let shotPosition: Point2D | null = null;
 
     if (now - this.lastShotTime > this.shotCooldown) {
-      const isFlashFrame = maxDiff > effectiveThreshold && position !== null;
+      // Convert position to processing coordinates for line building
+      const procPos = position ? {
+        x: position.x / this.scaleX,
+        y: position.y / this.scaleY,
+        brightness: maxDiff,
+      } : null;
 
-      if (isFlashFrame) {
-        if (!this.inFlash) {
-          // Flash just started — this is the pre-recoil position (most accurate)
-          this.inFlash = true;
-          this.flashStartTime = now;
-          this.flashPeakBrightness = maxDiff;
-          this.flashPeakPosition = position; // First frame = aim point
-          console.log(`[IRDetector] FLASH START: diff=${maxDiff} at (${Math.round(position!.x)},${Math.round(position!.y)})`);
+      if (!this.lineTracking) {
+        // Waiting for a shot to start
+        if (procPos && procPos.brightness >= this.enterThreshold) {
+          this.lineTracking = true;
+          this.currentLine = [procPos];
+          this.inactiveFrames = 0;
+          console.log(`[IRDetector] LINE START: diff=${maxDiff} at (${Math.round(position!.x)},${Math.round(position!.y)})`);
+        }
+      } else {
+        // Currently tracking a recoil sweep
+        if (procPos && procPos.brightness >= this.exitThreshold) {
+          const last = this.currentLine[this.currentLine.length - 1];
+          const dist = Math.sqrt((procPos.x - last.x) ** 2 + (procPos.y - last.y) ** 2);
+
+          if (dist <= this.connectedDistance) {
+            // Extend the line
+            this.currentLine.push(procPos);
+          } else if (dist <= this.breakDistance) {
+            // Gap but still same shot
+            this.currentLine.push(procPos);
+          } else {
+            // Too far — finalize current line, this might be a new shot
+            const result = this.finalizeLine();
+            if (result) {
+              shotPosition = result;
+              shotDetected = true;
+              this.lastShotTime = now;
+            }
+            // Start new line with this point
+            this.lineTracking = true;
+            this.currentLine = [procPos];
+          }
+          this.inactiveFrames = 0;
         } else {
-          // Track peak brightness but DON'T update position —
-          // the first frame position is the true aim point
-          if (maxDiff > this.flashPeakBrightness) {
-            this.flashPeakBrightness = maxDiff;
+          // No blob or below exit threshold
+          this.inactiveFrames++;
+          if (this.inactiveFrames >= this.inactiveFramesLimit) {
+            const result = this.finalizeLine();
+            if (result) {
+              shotPosition = result;
+              shotDetected = true;
+              this.lastShotTime = now;
+            }
           }
         }
-      } else if (this.inFlash) {
-        // Flash ended — register the shot at the FIRST frame position
-        this.inFlash = false;
-        if (this.flashPeakPosition && this.flashPeakBrightness > 150) {
-          // Only register strong flashes (real shots are 200+).
-          // Afterimages from previous shots read 40-130 and must be ignored.
-          position = this.flashPeakPosition;
-          shotDetected = true;
-          this.lastShotTime = now;
-
-          console.log(`[IRDetector] SHOT DETECTED: peakDiff=${this.flashPeakBrightness} pos=(${Math.round(position.x)},${Math.round(position.y)})`);
-        }
-        this.flashPeakBrightness = 0;
-        this.flashPeakPosition = null;
       }
+    }
 
-      // Safety: if flash has been going for too long (>300ms), it's not a real shot
-      if (this.inFlash && now - this.flashStartTime > 300) {
-        this.inFlash = false;
-        this.flashPeakBrightness = 0;
-        this.flashPeakPosition = null;
-      }
+    if (shotDetected && shotPosition) {
+      position = shotPosition;
+    }
+
+    // Schedule baseline update after shot — the projector will render
+    // the hit marker, and we need to incorporate it into the baseline
+    // so it doesn't trigger re-detection.
+    if (shotDetected) {
+      this.pendingBaselineUpdate = true;
+      this.baselineUpdateDelay = 0;
     }
 
     return {
@@ -481,6 +541,49 @@ export class IRDetector {
     };
   }
 
+  /**
+   * Finalize a recoil line and determine the shot position.
+   * Returns the first point (pre-recoil aim) if the line is valid.
+   */
+  private finalizeLine(): Point2D | null {
+    this.lineTracking = false;
+    const line = this.currentLine;
+    this.currentLine = [];
+
+    if (line.length === 0) return null;
+
+    if (line.length === 1) {
+      // Single point — instant shot (no recoil)
+      const p = line[0];
+      console.log(`[IRDetector] SHOT (instant): diff=${p.brightness} pos=(${Math.round(p.x * this.scaleX)},${Math.round(p.y * this.scaleY)})`);
+      return { x: p.x * this.scaleX, y: p.y * this.scaleY };
+    }
+
+    // Calculate total line length
+    let totalDist = 0;
+    for (let i = 1; i < line.length; i++) {
+      totalDist += Math.sqrt(
+        (line[i].x - line[i - 1].x) ** 2 +
+        (line[i].y - line[i - 1].y) ** 2
+      );
+    }
+
+    // Validate line length
+    if (totalDist < this.minLineLength) {
+      return null; // Too short, probably noise
+    }
+    if (totalDist > this.maxLineLength) {
+      console.log(`[IRDetector] Line rejected: too long (${Math.round(totalDist)}px)`);
+      return null; // Too long, probably artifact
+    }
+
+    // Use the FIRST point — pre-recoil aim position
+    const first = line[0];
+    const pos = { x: first.x * this.scaleX, y: first.y * this.scaleY };
+    console.log(`[IRDetector] SHOT (line ${line.length} pts, ${Math.round(totalDist)}px): pos=(${Math.round(pos.x)},${Math.round(pos.y)})`);
+    return pos;
+  }
+
   getBaseline(): number {
     return this.baselineBrightness;
   }
@@ -488,10 +591,12 @@ export class IRDetector {
   reset() {
     this.peakHistory = [];
     this.baselineBrightness = 0;
-    this.inFlash = false;
-    this.flashPeakBrightness = 0;
-    this.flashPeakPosition = null;
+    this.lineTracking = false;
+    this.currentLine = [];
+    this.inactiveFrames = 0;
     this.lastShotTime = 0;
+    this.pendingBaselineUpdate = false;
+    this.baselineUpdateDelay = 0;
     this.hotPixelMask.clear();
     this.hotPixelCandidates.clear();
     // Don't clear the baseline — it should persist until recaptured
