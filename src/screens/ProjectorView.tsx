@@ -150,57 +150,66 @@ export function ProjectorView() {
   );
 }
 
+// Maximum safe projected brightness for detection.
+// Camera Brightness=-48 (DirectShow additive offset) reduces pixel values by ~48.
+// To stay below TrackingThreshold=220 even if camera darkening only partially applies:
+//   safe_max = 220 - 48 = 172 (conservative). We cap at 160 for margin.
+// The hot pixel system catches any static bright area that slips through.
+const MAX_SAFE_BRIGHTNESS = 160;
+
 function drawTarget(ctx: CanvasRenderingContext2D, target: TargetConfig, projection: ProjectionConfig, screenW: number, screenH: number) {
   const shortSide = Math.min(screenW, screenH);
   const targetRadius = (shortSide * projection.targetSizePercent) / 200;
   const cx = screenW / 2 + projection.targetOffset.x;
   const cy = screenH / 2 + projection.targetOffset.y;
 
-  // With baseline subtraction, any color is safe — the baseline captures
-  // the projected image and only the laser (10-100x brighter) produces
-  // a diff above threshold. So we use proper target colors.
+  // All colors kept below MAX_SAFE_BRIGHTNESS (160) so the camera with Brightness=-48
+  // sees them well below TrackingThreshold=220 even with partial camera-settings failure.
   const rings = [...target.scoringRings].reverse();
   for (let i = 0; i < rings.length; i++) {
     const ring = rings[i];
     const radius = ring.radiusPercent * targetRadius;
 
+    // Outer rings (score 1-4): light gray — NOT white. White (255) risks false positives.
+    // Inner rings (5-9): dark gray — safely below threshold.
+    // Bullseye (10): dark maroon — red channel 140, well below 220 after camera darkening.
     if (ring.score <= 3) {
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#a0a0a0';     // 160 — max safe brightness
     } else if (ring.score <= 4) {
-      ctx.fillStyle = '#e8e8e8';
+      ctx.fillStyle = '#888888';     // 136 — safe
     } else if (ring.score <= 6) {
-      ctx.fillStyle = '#1a1a1a';
+      ctx.fillStyle = '#1a1a1a';     // 26 — safe
     } else if (ring.score <= 8) {
-      ctx.fillStyle = '#222222';
+      ctx.fillStyle = '#222222';     // 34 — safe
     } else if (ring.score <= 9) {
-      ctx.fillStyle = '#111111';
+      ctx.fillStyle = '#111111';     // 17 — safe
     } else {
-      ctx.fillStyle = '#cc0000'; // Bullseye red
+      ctx.fillStyle = '#8c0000';     // R=140 — safe
     }
 
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Ring borders
-    ctx.strokeStyle = ring.score <= 4 ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.2)';
+    // Ring borders — thin, low-brightness lines only
+    ctx.strokeStyle = ring.score <= 4 ? 'rgba(0,0,0,0.5)' : 'rgba(100,100,100,0.4)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Score labels
+    // Score labels — dark on light rings, dim on dark rings. Never white.
     if (ring.score >= 1 && ring.score <= 9) {
-      ctx.fillStyle = ring.score <= 4 ? '#333333' : '#aaaaaa';
-      ctx.font = `bold ${Math.max(14, targetRadius * 0.07)}px sans-serif`;
+      ctx.fillStyle = ring.score <= 4 ? '#222222' : '#555555'; // max 85 — safe
+      ctx.font = `bold ${Math.max(12, targetRadius * 0.07)}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(ring.score), cx, cy - radius + targetRadius * 0.05);
     }
   }
 
-  // Center X
+  // Center aiming point — thin dark crosshair, not white
   const xSize = Math.max(3, targetRadius * 0.015);
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#666666'; // 102 — safe
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(cx - xSize, cy - xSize);
   ctx.lineTo(cx + xSize, cy + xSize);
@@ -211,7 +220,9 @@ function drawTarget(ctx: CanvasRenderingContext2D, target: TargetConfig, project
 
 function drawHits(ctx: CanvasRenderingContext2D, hits: Array<{ position: Point2D; score: number; id: number; hitMarkerSize: number; time: number }>) {
   const now = Date.now();
-  const FADE_MS = 3000; // 3 second fade
+  // Short fade — the less time a hit marker sits on the projector, the less
+  // chance it interferes with subsequent shot detection.
+  const FADE_MS = 1500;
 
   for (let i = hits.length - 1; i >= 0; i--) {
     const hit = hits[i];
@@ -219,43 +230,43 @@ function drawHits(ctx: CanvasRenderingContext2D, hits: Array<{ position: Point2D
     if (age > FADE_MS) continue;
 
     const { x, y } = hit.position;
-    const radius = hit.hitMarkerSize;
+    const r = hit.hitMarkerSize;
     const alpha = Math.max(0, 1 - age / FADE_MS);
 
-    // Bright red hit marker — visible and satisfying.
-    // Safe because baseline subtraction handles it.
-    // Initial flash animation
-    const flash = age < 200 ? 1 + (1 - age / 200) * 0.5 : 1;
+    // Detection-safe hit marker design:
+    // All bright values are kept below MAX_SAFE_BRIGHTNESS (160).
+    // No large glow — glow radiates a wide bright area that the camera picks up.
+    // No white text — white on dark background = 255, unsafe.
+    // Just a dark bullet hole with a dim colored border: clean and readable.
 
-    // Glow
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, radius * 3 * flash);
-    grad.addColorStop(0, `rgba(255, 50, 50, ${alpha * 0.5})`);
-    grad.addColorStop(0.5, `rgba(255, 0, 0, ${alpha * 0.2})`);
+    // Very small dim rim glow — radius * 1.3 only, not radius * 3
+    const grad = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 1.3);
+    grad.addColorStop(0, `rgba(120, 30, 30, ${alpha * 0.4})`);  // R=120 — safe
     grad.addColorStop(1, 'transparent');
     ctx.beginPath();
-    ctx.arc(x, y, radius * 3 * flash, 0, Math.PI * 2);
+    ctx.arc(x, y, r * 1.3, 0, Math.PI * 2);
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // Bullet hole circle
+    // Bullet hole — dark fill, dim border
     ctx.beginPath();
-    ctx.arc(x, y, radius * flash, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(40, 40, 40, ${alpha * 0.9})`;
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(15, 15, 15, ${alpha * 0.95})`; // near-black — safe
     ctx.fill();
-    ctx.strokeStyle = `rgba(255, 80, 80, ${alpha})`;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(140, 50, 50, ${alpha})`; // R=140 — safe
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Score text
-    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-    ctx.font = `bold ${Math.max(11, radius)}px sans-serif`;
+    // Score text — dark gray, not white. Stays below threshold.
+    ctx.fillStyle = `rgba(100, 100, 100, ${alpha * 0.8})`; // 100 — safe
+    ctx.font = `bold ${Math.max(9, r * 0.9)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(hit.score), x, y);
   }
 
-  // Clean up old hits
-  while (hits.length > 0 && now - hits[0].time > FADE_MS + 500) {
+  // Clean up expired hits
+  while (hits.length > 0 && now - hits[0].time > FADE_MS + 200) {
     hits.shift();
   }
 }
@@ -356,82 +367,53 @@ function drawSpeedDrillTargets(ctx: CanvasRenderingContext2D, targets: SpeedDril
     const age = now - t.spawnTime;
 
     if (t.hit) {
-      // Hit animation — green flash that fades
-      const fadeAge = age - (t.spawnTime > 0 ? 0 : 0);
-      const alpha = Math.max(0, 1 - fadeAge / 500);
+      // Hit — quick dark flash, no bright colors
+      const alpha = Math.max(0, 1 - age / 400);
       if (alpha <= 0) continue;
-
-      const gradient = ctx.createRadialGradient(x, y, 0, x, y, r * 2);
-      gradient.addColorStop(0, `rgba(0, 100, 255, ${alpha * 0.5})`);
-      gradient.addColorStop(1, 'transparent');
       ctx.beginPath();
-      ctx.arc(x, y, r * 2, 0, Math.PI * 2);
-      ctx.fillStyle = gradient;
+      ctx.arc(x, y, r * 0.6, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(15, 15, 15, ${alpha * 0.9})`;
       ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(x, y, r * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(0, 100, 255, ${alpha})`;
-      ctx.fill();
-
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-      ctx.font = 'bold 16px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('HIT', x, y);
-      continue;
-    }
-
-    if (t.missed) {
-      // Miss animation — red fade
-      const alpha = Math.max(0, 1 - age / 800);
-      if (alpha <= 0) continue;
-
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(100, 0, 0, ${alpha * 0.5})`;
+      ctx.strokeStyle = `rgba(60, 60, 140, ${alpha * 0.8})`; // dim blue, B=140 safe
       ctx.lineWidth = 2;
       ctx.stroke();
       continue;
     }
 
-    // Active target — dark blue circle (IR-safe, invisible through red filter)
-    // with a pulsing animation based on remaining lifetime
-    const lifetime = 2000; // should match DRILL_TARGET_LIFETIME
+    if (t.missed) {
+      const alpha = Math.max(0, 1 - age / 600);
+      if (alpha <= 0) continue;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(80, 20, 20, ${alpha * 0.5})`; // R=80 safe
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      continue;
+    }
+
+    // Active target — all channel values kept below MAX_SAFE_BRIGHTNESS (160)
+    const lifetime = 2000;
     const progress = Math.min(1, age / lifetime);
-    const pulse = 1 + Math.sin(age / 150) * 0.1;
-    const urgency = progress > 0.7 ? 1 + (progress - 0.7) * 3 : 1;
+    const pulse = 1 + Math.sin(age / 150) * 0.08;
 
-    // Outer glow — gets more intense as time runs out
-    const glowAlpha = 0.15 * urgency;
-    const gradient = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 2);
-    gradient.addColorStop(0, `rgba(0, 80, 200, ${glowAlpha})`);
-    gradient.addColorStop(1, 'transparent');
-    ctx.beginPath();
-    ctx.arc(x, y, r * 2, 0, Math.PI * 2);
-    ctx.fillStyle = gradient;
-    ctx.fill();
-
-    // Main circle — dark blue, pulsing
+    // Outer ring only — no bright fill
     ctx.beginPath();
     ctx.arc(x, y, r * pulse, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(0, 40, 120, ${0.3 + progress * 0.2})`;
-    ctx.fill();
-    ctx.strokeStyle = `rgba(0, 100, 255, ${0.4 + progress * 0.3})`;
+    ctx.strokeStyle = `rgba(0, 80, 140, ${0.5 + progress * 0.3})`; // B=140 safe
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Inner ring
+    // Inner dot — dark
     ctx.beginPath();
-    ctx.arc(x, y, r * 0.4 * pulse, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(0, 60, 180, ${0.4 + progress * 0.3})`;
+    ctx.arc(x, y, r * 0.25, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0, 40, 80, 0.6)`; // B=80 safe
     ctx.fill();
 
-    // Timer arc — shows remaining time
+    // Timer arc
     const remaining = 1 - progress;
     ctx.beginPath();
-    ctx.arc(x, y, r + 4, -Math.PI / 2, -Math.PI / 2 + remaining * Math.PI * 2);
-    ctx.strokeStyle = `rgba(0, 150, 255, ${0.5 * urgency})`;
+    ctx.arc(x, y, r + 3, -Math.PI / 2, -Math.PI / 2 + remaining * Math.PI * 2);
+    ctx.strokeStyle = `rgba(0, 100, 140, ${0.5 + progress * 0.3})`; // B=140 safe
     ctx.lineWidth = 3;
     ctx.stroke();
   }

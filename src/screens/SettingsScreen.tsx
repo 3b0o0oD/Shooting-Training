@@ -258,74 +258,39 @@ export function SettingsScreen() {
 
           {activeTab === 'detection' && (
             <div className="space-y-6">
-              <SettingGroup label="Detection Mode">
-                <div className="flex gap-2">
-                  {(['flash', 'dwell', 'hybrid'] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => setDetectionConfig({ mode })}
-                      className={`flex-1 px-4 py-2 text-sm font-tactical uppercase tracking-wider border transition-all ${
-                        detectionConfig.mode === mode
-                          ? 'border-tactical-accent bg-tactical-accent/10 text-tactical-accent'
-                          : 'border-tactical-border text-slate-500 hover:text-slate-300'
-                      }`}
-                    >
-                      {mode}
-                    </button>
-                  ))}
-                </div>
-              </SettingGroup>
+              <SliderSetting
+                label="Tracking Threshold"
+                value={detectionConfig.trackingThreshold}
+                min={180}
+                max={254}
+                hint="CameraParameters.ini TrackingThreshold3=220. Raise if false positives occur; lower if shots are missed."
+                onChange={(v) => setDetectionConfig({ trackingThreshold: v })}
+              />
 
               <SliderSetting
-                label="Brightness Threshold"
-                value={detectionConfig.brightnessThreshold}
+                label="Shot Connected Distance (px)"
+                value={detectionConfig.shotConnectedDistance}
                 min={5}
-                max={255}
-                onChange={(v) => setDetectionConfig({ brightnessThreshold: v })}
-              />
-              <SliderSetting
-                label="Flash Spike Multiplier"
-                value={detectionConfig.flashSpikeMultiplier}
-                min={1.1}
-                max={5}
-                step={0.1}
-                onChange={(v) => setDetectionConfig({ flashSpikeMultiplier: v })}
-              />
-              <SliderSetting
-                label="Minimum Brightness"
-                value={detectionConfig.minBrightness}
-                min={3}
-                max={100}
-                onChange={(v) => setDetectionConfig({ minBrightness: v })}
-              />
-              <SliderSetting
-                label="Blur Radius"
-                value={detectionConfig.blurRadius}
-                min={3}
-                max={31}
-                step={2}
-                onChange={(v) => setDetectionConfig({ blurRadius: v })}
+                max={150}
+                step={5}
+                hint="SLDriver: ShotConnectedDistance. Max distance between a new blob and any previous-frame blob to count as the same blob (not a new shot). Increase for slow lasers; decrease for precision."
+                onChange={(v) => setDetectionConfig({ shotConnectedDistance: v })}
               />
 
-              {(detectionConfig.mode === 'dwell' || detectionConfig.mode === 'hybrid') && (
-                <>
-                  <SliderSetting
-                    label="Dwell Radius (px)"
-                    value={detectionConfig.dwellRadius}
-                    min={2}
-                    max={30}
-                    onChange={(v) => setDetectionConfig({ dwellRadius: v })}
-                  />
-                  <SliderSetting
-                    label="Dwell Time (ms)"
-                    value={detectionConfig.dwellTime}
-                    min={50}
-                    max={1000}
-                    step={50}
-                    onChange={(v) => setDetectionConfig({ dwellTime: v })}
-                  />
-                </>
-              )}
+              <SliderSetting
+                label="Threshold Bump Step"
+                value={detectionConfig.thresholdBumpStep}
+                min={0}
+                max={10}
+                hint="SLDriver: ThresholdBump. When too many blobs are detected the threshold auto-raises by this amount. Set to 0 to disable auto-adjustment."
+                onChange={(v) => setDetectionConfig({ thresholdBumpStep: v })}
+              />
+
+              <div className="p-3 border border-tactical-border/30 rounded text-xs text-slate-500 space-y-1">
+                <div><span className="text-slate-400">Tracking Threshold</span> — pixels above this value are candidate laser hits. Tuned for CameraParameters.ini Channel 3 (Brightness=−48).</div>
+                <div><span className="text-slate-400">Shot Connected Distance</span> — blobs within this radius of a previous-frame blob are treated as the same ongoing blob, not a new shot.</div>
+                <div><span className="text-slate-400">Threshold Bump</span> — auto-raises threshold when the camera sees too many false blobs (projector bleed-through). Resets toward base when scene is dark again.</div>
+              </div>
             </div>
           )}
 
@@ -403,6 +368,7 @@ function SliderSetting({
   min,
   max,
   step = 1,
+  hint,
   onChange,
 }: {
   label: string;
@@ -410,6 +376,7 @@ function SliderSetting({
   min: number;
   max: number;
   step?: number;
+  hint?: string;
   onChange: (value: number) => void;
 }) {
   return (
@@ -428,6 +395,7 @@ function SliderSetting({
           {typeof step === 'number' && step < 1 ? value.toFixed(1) : value}
         </span>
       </div>
+      {hint && <div className="text-[10px] text-slate-600 font-mono mt-1 leading-relaxed">{hint}</div>}
     </SettingGroup>
   );
 }

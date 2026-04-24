@@ -383,15 +383,14 @@ export function CalibrationScreen() {
       // Wait for the target to display and settle, then capture baseline
       // This is critical: the baseline subtraction eliminates the projected
       // target from detection, so only the laser flash is detected.
-      await sleep(400);
+      // Switch to irTracking preset (Brightness=-48, Gain=20, Saturation=128).
+      // This makes the projected target fall below TrackingThreshold=220 so only
+      // the laser dot triggers detection during the testing phase.
+      await switchPreset('irTracking');
+      console.log('[Calibration] Switched to irTracking preset for testing');
+      await sleep(800);
 
-      // Keep calibration preset (saturation=0) — it works for shot detection
-      // No need to switch presets
-      console.log('[Calibration] Keeping calibration preset for testing');
-
-      await sleep(600);
-
-      // Set ROI first so auto-adjust samples within the screen area
+      // Set ROI so we only scan within the projected screen area
       const roi = engineRef.current.getCameraROI(
         cameraConfig.width,
         cameraConfig.height,
@@ -401,16 +400,8 @@ export function CalibrationScreen() {
         console.log('[Calibration] ROI set:', roi);
       }
 
-      // Auto-adjust exposure within the ROI
-      await autoAdjustTrackingExposure(async () => {
-        const s = await sampleBrightestPoint(4, 50);
-        return s?.brightness ?? 255;
-      });
-
-      await sleep(800);
-
-      captureBaseline();
-      console.log('[Calibration] Baseline capture started for testing');
+      // No baseline capture needed — absolute threshold algorithm is ready immediately
+      console.log('[Calibration] Ready for shot testing');
     } catch (err) {
       console.error('Homography computation failed:', err);
       setAutoStatus('Calibration failed — try repositioning the camera.');

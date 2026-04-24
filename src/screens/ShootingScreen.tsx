@@ -31,7 +31,12 @@ export function ShootingScreen() {
     shotsPerSeries,
     showDebug,
     toggleDebug,
+    activeProfile,
+    activeWeapon,
   } = useAppStore();
+
+  // Session ID created when this screen mounts — all shots are persisted under it
+  const sessionIdRef = useRef<string>(uuidv4());
 
   const { videoRef, isReady, error, switchPreset, autoAdjustTrackingExposure } = useCamera(cameraConfig);
   const [currentTrace, setCurrentTrace] = useState<Point2D[]>([]);
@@ -45,6 +50,24 @@ export function ShootingScreen() {
 
   const scoringEngine = useRef(new ScoringEngine(activeTarget, projectionConfig));
   const calibrationEngine = useRef(new CalibrationEngine(calibrationProfile));
+
+  // Create a session in the DB when this screen mounts, end it on unmount
+  useEffect(() => {
+    const api = window.electronAPI;
+    const sessionId = sessionIdRef.current;
+    api?.dbCreateSession?.(
+      sessionId,
+      activeProfile?.id ?? null,
+      activeTarget.id,
+      JSON.stringify(activeTarget),
+      JSON.stringify(calibrationProfile),
+      'practice',
+      Date.now(),
+    );
+    return () => {
+      api?.dbEndSession?.(sessionId, Date.now());
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ensure projector is showing the target
   useEffect(() => {
@@ -77,9 +100,14 @@ export function ShootingScreen() {
       if (result.position) {
         setRawCameraPosition(result.position);
 
-        const screenPos = isCalibrated
+        const rawScreenPos = isCalibrated
           ? calibrationEngine.current.cameraToScreen(result.position)
           : result.position;
+        // Apply per-weapon laser-to-bore offset (ShotOffsetX/Y from WeaponList.ini)
+        const screenPos = rawScreenPos ? {
+          x: rawScreenPos.x + activeWeapon.shotOffsetX,
+          y: rawScreenPos.y + activeWeapon.shotOffsetY,
+        } : null;
 
         if (screenPos) {
           setIrPosition(screenPos);
@@ -102,6 +130,16 @@ export function ShootingScreen() {
             setShotTimer(0);
 
             const api = window.electronAPI;
+            // Persist to database
+            api?.dbAddShot?.(
+              newShot.id,
+              sessionIdRef.current,
+              result.position.x, result.position.y,
+              screenPos.x, screenPos.y,
+              score,
+              newShot.timestamp,
+              JSON.stringify(newShot.tracePoints),
+            );
             if (api?.sendToProjector) {
               api.sendToProjector({ type: 'show-hit', position: screenPos, score, hitMarkerSize: projectionConfig.hitMarkerSize });
               console.log(`[ShootingScreen] Hit sent to projector: pos=(${Math.round(screenPos.x)},${Math.round(screenPos.y)}) score=${score}`);
@@ -131,18 +169,18 @@ export function ShootingScreen() {
     resetDetector();
 
     const setup = async () => {
-      // Use calibration preset (saturation=0, black & white) — same settings
-      // that worked for shot detection during calibration testing
-      await switchPreset('calibration');
-      console.log('[ShootingScreen] Using calibration preset for shooting');
+      // Switch to tracking preset: Brightness=-48, Gain=20, Saturation=128
+      // (CameraParameters.ini Channel 3). This makes the projected scene fall
+      // below TrackingThreshold=220 so only the laser dot triggers detection.
+      await switchPreset('irTracking');
+      console.log('[ShootingScreen] Switched to irTracking preset (Channel 3)');
 
-      // Wait for camera to settle after preset switch
-      await new Promise(r => setTimeout(r, 600));
+      // Wait for camera sensor to settle after settings change
+      await new Promise(r => setTimeout(r, 800));
 
-      // Compute ROI first so we can sample within it
-      let roi: { x: number; y: number; w: number; h: number } | null = null;
+      // Set ROI to projected screen area so we only scan for laser within bounds
       if (isCalibrated && calibrationProfile.calibrationPoints.length >= 4) {
-        roi = calibrationEngine.current.getCameraROI(
+        const roi = calibrationEngine.current.getCameraROI(
           cameraConfig.width,
           cameraConfig.height,
         );
@@ -152,31 +190,9 @@ export function ShootingScreen() {
         }
       }
 
-      // Use the exposure that was found during calibration
-      // (stored in cameraConfig.exposure). This avoids the oscillation
-      // problem with auto-adjustment.
-      if (cameraConfig.exposure) {
-        const stream = videoRef.current?.srcObject as MediaStream | null;
-        const track = stream?.getVideoTracks()[0];
-        if (track) {
-          try {
-            await track.applyConstraints({
-              advanced: [{ exposureMode: 'manual', exposureTime: cameraConfig.exposure } as any],
-            } as any);
-            console.log(`[ShootingScreen] Using calibration exposure: ${cameraConfig.exposure}µs`);
-          } catch { /* ignore */ }
-        }
-      }
-
-      // Wait for camera to fully settle, then capture baseline
-      await new Promise(r => setTimeout(r, 1000));
-      captureBaseline();
-      console.log('[ShootingScreen] Baseline capture started');
-
-      // Wait for baseline to complete (~30 frames at 30fps = ~1 second)
-      await new Promise(r => setTimeout(r, 1500));
+      // No baseline capture needed — absolute threshold algorithm is ready immediately
       setBaselineReady(true);
-      console.log('[ShootingScreen] Detection active');
+      console.log('[ShootingScreen] Detection active (absolute threshold mode)');
     };
 
     setup();

@@ -8,6 +8,7 @@ import type {
   CameraConfig,
   ProjectionConfig,
   ShooterProfile,
+  WeaponProfile,
   Point2D,
 } from '../types';
 
@@ -60,6 +61,13 @@ interface AppState {
   activeProfile: ShooterProfile | null;
   setActiveProfile: (profile: ShooterProfile | null) => void;
 
+  // Weapon
+  activeWeapon: WeaponProfile;
+  setActiveWeapon: (weapon: WeaponProfile) => void;
+  weapons: WeaponProfile[];
+  addWeapon: (weapon: WeaponProfile) => void;
+  deleteWeapon: (id: string) => void;
+
   // UI
   showDebug: boolean;
   toggleDebug: () => void;
@@ -93,6 +101,9 @@ const DEFAULT_DETECTION: DetectionConfig = {
   dwellTime: 150,
   blurRadius: 11,
   minBrightness: 5,
+  trackingThreshold: 220,     // CameraParameters.ini TrackingThreshold3
+  shotConnectedDistance: 50,  // SLDriver: ShotConnectedDistance
+  thresholdBumpStep: 2,       // SLDriver: ThresholdBump — 0 to disable
 };
 
 const DEFAULT_CAMERA: CameraConfig = {
@@ -177,6 +188,13 @@ export const useAppStore = create<AppState>((set) => ({
   // Profiles
   activeProfile: null,
   setActiveProfile: (profile) => set({ activeProfile: profile }),
+
+  // Weapon
+  activeWeapon: { id: 'default', name: 'Default', shotOffsetX: 0, shotOffsetY: 0 },
+  setActiveWeapon: (weapon) => set({ activeWeapon: weapon }),
+  weapons: [{ id: 'default', name: 'Default', shotOffsetX: 0, shotOffsetY: 0 }],
+  addWeapon: (weapon) => set((state) => ({ weapons: [...state.weapons, weapon] })),
+  deleteWeapon: (id) => set((state) => ({ weapons: state.weapons.filter(w => w.id !== id) })),
 
   // UI
   showDebug: false,

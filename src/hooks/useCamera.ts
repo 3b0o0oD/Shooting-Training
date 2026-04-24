@@ -197,37 +197,42 @@ async function applyCameraPreset(
   if (caps.exposureMode) settings.exposureMode = 'manual';
 
   if (presetName === 'calibration') {
-    // Channel 0: Bright enough to see projected calibration dots
+    // CameraParameters.ini Channel 0 (ChannelIndex0=0): bright enough to see calibration dots
+    // Brightness0=0, Contrast0=32, Gain0=0, Saturation0=0, Hue0=0
     if (caps.brightness) settings.brightness = mapRange(0, -64, 64, caps.brightness);
     if (caps.contrast) settings.contrast = mapRange(32, 0, 64, caps.contrast);
+    if (caps.gain) settings.gain = mapRange(0, 0, 100, caps.gain);
     if (caps.saturation) settings.saturation = mapRange(0, 0, 128, caps.saturation);
-    if (caps.exposureTime) {
-      // Start at 10% — will be auto-adjusted by calibration routine
-      settings.exposureTime = Math.round(caps.exposureTime.max * 0.1);
-    }
+    if (caps.hue) settings.hue = mapRange(0, -180, 180, caps.hue);
+    if (caps.gamma) settings.gamma = mapRange(72, 1, 500, caps.gamma);
   } else {
-    // Channel 3 (IR Tracking): suppress projector with brightness, keep exposure HIGH
-    // brightness = minimum: darkens the projector image digitally
-    // contrast = 0: flat, no enhancement
-    // saturation = max: makes laser color pop
-    // exposure = HIGH: captures brief laser flashes
-    if (caps.brightness) settings.brightness = Math.round(caps.brightness.min * 0.5); // -32 on a -64..64 range
+    // CameraParameters.ini Channel 3 (ChannelIndex1=3): tracking mode.
+    // Brightness=-48 makes the projected scene fall below TrackingThreshold=220.
+    // Only the laser dot exceeds the threshold — no baseline subtraction needed.
+    // Brightness1=-48, Contrast1=0, Gain1=20, Saturation1=128, Hue1=40, Gamma=72
+    if (caps.brightness) settings.brightness = mapRange(-48, -64, 64, caps.brightness);
     if (caps.contrast) settings.contrast = mapRange(0, 0, 64, caps.contrast);
+    if (caps.gain) settings.gain = mapRange(20, 0, 100, caps.gain);
     if (caps.saturation) settings.saturation = mapRange(128, 0, 128, caps.saturation);
-    if (caps.exposureTime) {
-      // HIGH exposure — will be fine-tuned by autoAdjustTrackingExposure
-      settings.exposureTime = Math.round(caps.exposureTime.max * 0.8);
-    }
+    if (caps.hue) settings.hue = mapRange(40, -180, 180, caps.hue);
+    if (caps.gamma) settings.gamma = mapRange(72, 1, 500, caps.gamma);
   }
 
-  // Common settings
+  // Common: manual white balance at 6500K (WhiteBalance0/1=6500 in CameraParameters.ini)
   if (caps.sharpness) settings.sharpness = caps.sharpness.min || 0;
   if (caps.whiteBalanceMode) settings.whiteBalanceMode = 'manual';
   if (caps.colorTemperature) settings.colorTemperature = 6500;
 
   try {
     await track.applyConstraints({ advanced: [settings] } as any);
-    console.log(`[camera] Switched to ${presetName}:`, settings);
+    const applied = track.getSettings();
+    console.log(`[camera] Switched to ${presetName}. Requested:`, settings, '| Actual:', {
+      brightness: (applied as any).brightness,
+      contrast: (applied as any).contrast,
+      saturation: (applied as any).saturation,
+      exposureMode: (applied as any).exposureMode,
+      exposureTime: (applied as any).exposureTime,
+    });
   } catch (e) {
     console.log(`[camera] Could not apply ${presetName}:`, e);
   }

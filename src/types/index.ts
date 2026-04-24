@@ -62,6 +62,13 @@ export interface CalibrationPoint {
   camera: Point2D;           // Where the camera saw it
 }
 
+export interface LensDistortion {
+  k1: number;   // Radial coefficient 1 (negative = barrel, positive = pincushion)
+  k2: number;   // Radial coefficient 2 (higher-order correction)
+  cx: number;   // Distortion center x (camera pixels)
+  cy: number;   // Distortion center y (camera pixels)
+}
+
 export interface CalibrationProfile {
   id: string;
   name: string;
@@ -73,6 +80,8 @@ export interface CalibrationProfile {
   manualOffset: Point2D;
   /** Reprojection error in pixels (quality metric) */
   reprojectionError: number;
+  /** Radial lens distortion coefficients — auto-estimated from calibration residuals */
+  distortion?: LensDistortion;
   createdAt: number;
 }
 
@@ -82,12 +91,25 @@ export type DetectionMode = 'flash' | 'dwell' | 'hybrid';
 
 export interface DetectionConfig {
   mode: DetectionMode;
-  brightnessThreshold: number;    // 0-255
-  flashSpikeMultiplier: number;   // How much brighter than baseline to trigger
-  dwellRadius: number;            // Pixels - how still the dot must be
-  dwellTime: number;              // ms - how long it must stay still
-  blurRadius: number;             // Gaussian blur kernel size (odd number)
-  minBrightness: number;          // Minimum brightness to track at all
+  brightnessThreshold: number;
+  flashSpikeMultiplier: number;
+  dwellRadius: number;
+  dwellTime: number;
+  blurRadius: number;
+  minBrightness: number;
+  /** Absolute pixel brightness threshold — CameraParameters.ini TrackingThreshold3=220 */
+  trackingThreshold: number;
+  /**
+   * Max pixel distance between consecutive blob centroids to be considered the same blob.
+   * SLDriver: "ShotConnectedDistance". Increase if shots are split; decrease for precision.
+   */
+  shotConnectedDistance: number;
+  /**
+   * ThresholdBump step size. When too many blobs are detected (false positives),
+   * the threshold auto-increments by this amount per bump event. 0 = disabled.
+   * SLDriver: "ThresholdBump".
+   */
+  thresholdBumpStep: number;
 }
 
 // ─── Session Types ───
@@ -105,6 +127,14 @@ export interface Session {
 }
 
 // ─── Camera Types ───
+
+export interface WeaponProfile {
+  id: string;
+  name: string;
+  /** Shot offset in screen pixels — corrects laser-to-bore alignment per weapon */
+  shotOffsetX: number;
+  shotOffsetY: number;
+}
 
 export interface CameraDevice {
   deviceId: string;

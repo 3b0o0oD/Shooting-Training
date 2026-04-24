@@ -18,14 +18,19 @@ export class CalibrationEngine {
   }
 
   /**
-   * Transform a camera coordinate to a screen coordinate using the homography.
+   * Transform a camera coordinate to a screen coordinate.
+   * Pipeline (matches SLDriver): undistort → homography → manual offset.
+   * "Shot distorted: %0.2f %0.2f" → "Shot undistorted: %0.2f %0.2f"
    */
   cameraToScreen(cameraPoint: Point2D): Point2D | null {
     const H = this.profile.homography;
     if (!H || H.length !== 9) return null;
 
-    const x = cameraPoint.x;
-    const y = cameraPoint.y;
+    // Apply Brown-Conrady radial lens undistortion before homography.
+    // k1, k2 are stored in the profile (estimated from calibration point residuals).
+    const undistorted = this.undistort(cameraPoint);
+    const x = undistorted.x;
+    const y = undistorted.y;
 
     const w = H[6] * x + H[7] * y + H[8];
     if (Math.abs(w) < 1e-10) return null;
@@ -40,6 +45,27 @@ export class CalibrationEngine {
   }
 
   /**
+   * Brown-Conrady radial undistortion (barrel/pincushion).
+   * r_u ≈ r_d * (1 + k1*r_d² + k2*r_d⁴) where r is distance from image center.
+   * k1 < 0 = barrel distortion (most webcams). k1 > 0 = pincushion.
+   * Coefficients are auto-estimated by computeHomography from point residuals.
+   */
+  private undistort(p: Point2D): Point2D {
+    const k1 = this.profile.distortion?.k1 ?? 0;
+    const k2 = this.profile.distortion?.k2 ?? 0;
+    if (k1 === 0 && k2 === 0) return p;
+
+    const cx = this.profile.distortion?.cx ?? 0;
+    const cy = this.profile.distortion?.cy ?? 0;
+
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    const r2 = dx * dx + dy * dy;
+    const factor = 1 + k1 * r2 + k2 * r2 * r2;
+    return { x: cx + dx * factor, y: cy + dy * factor };
+  }
+
+  /**
    * Compute the homography from 4+ calibration point pairs using DLT.
    * With more than 4 points, uses least-squares via the normal equations
    * (A^T A h = A^T b) for a more accurate, noise-resistant result.
@@ -49,40 +75,41 @@ export class CalibrationEngine {
       throw new Error('Need at least 4 calibration points for homography');
     }
 
-    // Build the DLT equation system.
-    // For each point pair we get 2 rows in A.
-    // We set h[8] = 1 and move that column to the RHS.
-    const rows = points.length * 2;
+    // Hartley normalization: translate to centroid, scale so mean distance = √2.
+    // Without this, the DLT normal-equations matrix spans 10+ orders of magnitude
+    // (translation terms O(1920) vs perspective terms O(1/1920²)), causing
+    // catastrophic floating-point loss in Gaussian elimination.
+    const normCam = this.normalizePoints(points.map(p => p.camera));
+    const normScr = this.normalizePoints(points.map(p => p.screen));
+
+    // Build DLT in normalized space (h[8]=1, moved to RHS)
     const A: number[][] = [];
     const b: number[] = [];
 
-    for (const p of points) {
-      const cx = p.camera.x;
-      const cy = p.camera.y;
-      const sx = p.screen.x;
-      const sy = p.screen.y;
+    for (let i = 0; i < points.length; i++) {
+      const cx = normCam.pts[i].x;
+      const cy = normCam.pts[i].y;
+      const sx = normScr.pts[i].x;
+      const sy = normScr.pts[i].y;
 
-      // Row for sx equation
       A.push([cx, cy, 1, 0, 0, 0, -sx * cx, -sx * cy]);
-      b.push(sx); // moved -sx * h8 to RHS, h8=1 → RHS = sx
-
-      // Row for sy equation
+      b.push(sx);
       A.push([0, 0, 0, cx, cy, 1, -sy * cx, -sy * cy]);
       b.push(sy);
     }
 
     let h: number[];
-
+    const rows = points.length * 2;
     if (rows === 8) {
-      // Exactly 4 points → direct solve (8×8 system)
       h = this.solveLinear(A, b);
     } else {
-      // Over-determined → least-squares via normal equations: (A^T A) h = A^T b
       const { AtA, Atb } = this.normalEquations(A, b);
       h = this.solveLinear(AtA, Atb);
     }
 
-    const H = [...h, 1]; // h[8] = 1
+    // Denormalize: H_real = T_screen_inv × H_norm × T_cam
+    const Hn = [...h, 1]; // 3×3 in normalized space
+    const H = this.denormalizeHomography(Hn, normCam.T, normScr.T);
 
     // Calculate reprojection error
     let totalError = 0;
@@ -96,15 +123,128 @@ export class CalibrationEngine {
     }
     const reprojectionError = totalError / points.length;
 
+    // Estimate radial lens distortion from residuals.
+    // Compute per-point error as a function of camera-space radius from image center.
+    // Fit k1 (linear in r²) using least-squares. k2 set to 0 unless error is large.
+    const distortion = this.estimateDistortion(points, H);
+
     this.profile = {
       ...this.profile,
       homography: H,
       calibrationPoints: points,
       reprojectionError,
+      distortion,
       manualOffset: { x: 0, y: 0 },
     };
 
     return { ...this.profile };
+  }
+
+  /**
+   * Estimate radial distortion coefficients k1, k2 from homography residuals.
+   * For each calibration point, the difference between projected-by-H and actual
+   * screen position correlates with barrel/pincushion distortion in the camera.
+   * Fits k1 via 1D least-squares on the radial axis.
+   */
+  private estimateDistortion(points: CalibrationPoint[], H: number[]): { k1: number; k2: number; cx: number; cy: number } {
+    // Image center (approximate principal point)
+    const cxArr = points.map(p => p.camera.x);
+    const cyArr = points.map(p => p.camera.y);
+    const cx = cxArr.reduce((s, v) => s + v, 0) / cxArr.length;
+    const cy = cyArr.reduce((s, v) => s + v, 0) / cyArr.length;
+
+    // Build least-squares system: error_radial = k1 * r² + k2 * r⁴
+    let a11 = 0, a12 = 0, a22 = 0, b1 = 0, b2 = 0;
+    for (const p of points) {
+      const dx = p.camera.x - cx;
+      const dy = p.camera.y - cy;
+      const r2 = dx * dx + dy * dy;
+      const r4 = r2 * r2;
+      const w = H[6] * p.camera.x + H[7] * p.camera.y + H[8];
+      const px = (H[0] * p.camera.x + H[1] * p.camera.y + H[2]) / w;
+      const py = (H[3] * p.camera.x + H[4] * p.camera.y + H[5]) / w;
+      // Residual in camera space (approximate — proper iterative solve omitted for simplicity)
+      const errX = p.screen.x - px;
+      const errY = p.screen.y - py;
+      // Project residual onto radial direction
+      const r = Math.sqrt(r2);
+      const err = r > 0 ? (errX * dx / r + errY * dy / r) : 0;
+      a11 += r2 * r2; a12 += r2 * r4; a22 += r4 * r4;
+      b1 += err * r2;  b2 += err * r4;
+    }
+
+    // Solve 2×2 system for k1, k2
+    const det = a11 * a22 - a12 * a12;
+    if (Math.abs(det) < 1e-20) return { k1: 0, k2: 0, cx, cy };
+    const k1 = (b1 * a22 - b2 * a12) / det;
+    const k2 = (a11 * b2 - a12 * b1) / det;
+
+    // Sanity clamp — extreme values indicate bad calibration, not real distortion
+    return {
+      k1: Math.max(-0.5, Math.min(0.5, k1)),
+      k2: Math.max(-0.5, Math.min(0.5, k2)),
+      cx,
+      cy,
+    };
+  }
+
+  /**
+   * Hartley normalization: translate points to centroid, scale so average
+   * distance from origin is √2. Returns normalized points + 3×3 transform T.
+   * T maps original → normalized: x_norm = T × x_orig (homogeneous).
+   */
+  private normalizePoints(pts: Point2D[]): { pts: Point2D[]; T: number[] } {
+    const n = pts.length;
+    let mx = 0, my = 0;
+    for (const p of pts) { mx += p.x; my += p.y; }
+    mx /= n; my /= n;
+
+    let meanDist = 0;
+    for (const p of pts) {
+      meanDist += Math.sqrt((p.x - mx) ** 2 + (p.y - my) ** 2);
+    }
+    meanDist /= n;
+
+    const scale = meanDist < 1e-8 ? 1 : Math.SQRT2 / meanDist;
+
+    // T = [scale, 0, -scale*mx; 0, scale, -scale*my; 0, 0, 1]
+    const T = [scale, 0, -scale * mx, 0, scale, -scale * my, 0, 0, 1];
+
+    const normalized = pts.map(p => ({
+      x: scale * (p.x - mx),
+      y: scale * (p.y - my),
+    }));
+
+    return { pts: normalized, T };
+  }
+
+  /**
+   * Denormalize homography: H_real = T_screen_inv × H_norm × T_cam
+   * where T matrices are 3×3 stored row-major as flat 9-element arrays.
+   */
+  private denormalizeHomography(Hn: number[], Tc: number[], Ts: number[]): number[] {
+    // Invert Ts (similarity transform — easy closed form)
+    const s = Ts[0]; // scale
+    const tx = Ts[2]; const ty = Ts[5];
+    // Ts_inv = [1/s, 0, -tx/s; 0, 1/s, -ty/s; 0, 0, 1]
+    const TsInv = [1/s, 0, -tx/s, 0, 1/s, -ty/s, 0, 0, 1];
+
+    const mat3mul = (A: number[], B: number[]): number[] => {
+      const C = new Array(9).fill(0);
+      for (let r = 0; r < 3; r++)
+        for (let c = 0; c < 3; c++)
+          for (let k = 0; k < 3; k++)
+            C[r*3+c] += A[r*3+k] * B[k*3+c];
+      return C;
+    };
+
+    const H = mat3mul(mat3mul(TsInv, Hn), Tc);
+    // Normalize so H[8] = 1
+    if (Math.abs(H[8]) > 1e-10) {
+      const inv = 1 / H[8];
+      return H.map(v => v * inv);
+    }
+    return H;
   }
 
   /**
