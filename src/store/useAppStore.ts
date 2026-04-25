@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { TARGET_LIBRARY } from '../data/targets';
 import type {
   AppScreen,
   Shot,
@@ -73,25 +74,7 @@ interface AppState {
   toggleDebug: () => void;
 }
 
-const DEFAULT_TARGET: TargetConfig = {
-  id: 'standard-10ring',
-  name: 'Standard 10-Rings',
-  scoringRings: [
-    { score: 10, radiusPercent: 0.05 },
-    { score: 9, radiusPercent: 0.15 },
-    { score: 8, radiusPercent: 0.25 },
-    { score: 7, radiusPercent: 0.35 },
-    { score: 6, radiusPercent: 0.45 },
-    { score: 5, radiusPercent: 0.55 },
-    { score: 4, radiusPercent: 0.65 },
-    { score: 3, radiusPercent: 0.75 },
-    { score: 2, radiusPercent: 0.85 },
-    { score: 1, radiusPercent: 1.0 },
-  ],
-  gaugingMethod: 'inward',
-  bullseyeColor: '#002d55',
-  backgroundColor: '#0a0e17',
-};
+const DEFAULT_TARGET: TargetConfig = TARGET_LIBRARY[0];
 
 const DEFAULT_DETECTION: DetectionConfig = {
   mode: 'flash',

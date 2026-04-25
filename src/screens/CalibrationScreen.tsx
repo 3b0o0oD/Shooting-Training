@@ -495,7 +495,7 @@ export function CalibrationScreen() {
       <div className="relative z-10 w-full max-w-2xl px-8">
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-6">
-          <h2 className="font-hud text-3xl text-tactical-orange text-glow-orange tracking-[0.2em]">CALIBRATION</h2>
+          <h2 className="font-hud text-3xl text-tactical-orange text-glow-amber tracking-[0.2em]">CALIBRATION</h2>
           <div className="text-sm text-slate-500 font-tactical tracking-wider mt-1">
             {step === 'setup' && 'Select your projector display to begin'}
             {step === 'projecting' && 'Auto-calibrating — detecting projected markers...'}

@@ -4,10 +4,37 @@ import type { TargetConfig } from '../types';
  * Built-in target library.
  *
  * Each target defines scoring rings as radiusPercent (0-1) of the total target radius.
- * These are rendered digitally on the projector — no physical target images needed.
+ * targetStyle 'disc' = black aiming disc on cream paper (ISSF-style vector rendering).
+ * targetStyle 'classic' = white outer / black inner alternating rings.
  */
 
 export const TARGET_LIBRARY: TargetConfig[] = [
+  // ─── ISSF-style disc targets ───
+  {
+    id: '1989-10m-outward',
+    name: '1989 10m Air Rifle (Outward Gauging)',
+    targetStyle: 'disc',
+    gaugingMethod: 'outward',
+    // Ring radii as fraction of total target radius (paper edge = 1.0).
+    // Labeled rings in the original target: 4, 6, 8. Odd rings interpolated.
+    // Score 3 marks the outer edge of the black disc (~73% of radius).
+    scoringRings: [
+      { score: 10, radiusPercent: 0.025 },  // white centre dot
+      { score: 9,  radiusPercent: 0.12  },
+      { score: 8,  radiusPercent: 0.20  },  // labeled "8"
+      { score: 7,  radiusPercent: 0.255 },
+      { score: 6,  radiusPercent: 0.31  },  // labeled "6"
+      { score: 5,  radiusPercent: 0.38  },
+      { score: 4,  radiusPercent: 0.46  },  // labeled "4"
+      { score: 3,  radiusPercent: 0.73  },  // outer edge of black disc
+      { score: 2,  radiusPercent: 0.86  },
+      { score: 1,  radiusPercent: 1.0   },  // outer edge of paper
+    ],
+    bullseyeColor: '#ffffff',
+    backgroundColor: '#c8a882',
+  },
+
+
   // ─── Standard Concentric Ring Targets ───
   {
     id: 'standard-10ring',

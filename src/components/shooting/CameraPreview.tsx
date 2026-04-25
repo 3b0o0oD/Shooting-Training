@@ -68,7 +68,7 @@ export function CameraPreview({
 
         // Glow
         const gradient = ctx.createRadialGradient(x, y, 0, x, y, 20);
-        gradient.addColorStop(0, 'rgba(0, 255, 136, 0.6)');
+        gradient.addColorStop(0, 'rgba(200, 163, 90, 0.6)');
         gradient.addColorStop(1, 'transparent');
         ctx.beginPath();
         ctx.arc(x, y, 20, 0, Math.PI * 2);
@@ -76,7 +76,7 @@ export function CameraPreview({
         ctx.fill();
 
         // Crosshair
-        ctx.strokeStyle = '#00ff88';
+        ctx.strokeStyle = '#c8a35a';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(x - 12, y);
@@ -92,11 +92,11 @@ export function CameraPreview({
         // Center dot
         ctx.beginPath();
         ctx.arc(x, y, 2, 0, Math.PI * 2);
-        ctx.fillStyle = '#00ff88';
+        ctx.fillStyle = '#c8a35a';
         ctx.fill();
 
         // Coordinates label
-        ctx.fillStyle = '#00ff88';
+        ctx.fillStyle = '#c8a35a';
         ctx.font = '10px monospace';
         ctx.fillText(`${Math.round(irPosition.x)}, ${Math.round(irPosition.y)}`, x + 14, y - 6);
       }
@@ -111,7 +111,7 @@ export function CameraPreview({
 
       // Threshold line
       const threshX = (threshold / 255) * displayW;
-      ctx.strokeStyle = 'rgba(255, 107, 0, 0.8)';
+      ctx.strokeStyle = 'rgba(217, 119, 6, 0.8)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(threshX, barY - 1);
@@ -120,7 +120,7 @@ export function CameraPreview({
 
       // Baseline
       const baseX = (baseline / 255) * displayW;
-      ctx.strokeStyle = 'rgba(0, 240, 255, 0.5)';
+      ctx.strokeStyle = 'rgba(200, 163, 90, 0.5)';
       ctx.beginPath();
       ctx.moveTo(baseX, barY - 1);
       ctx.lineTo(baseX, barY + barH + 1);
@@ -129,7 +129,7 @@ export function CameraPreview({
       // Current brightness
       const brightW = (brightness / 255) * displayW;
       const brightColor =
-        brightness > threshold ? '#ff2d55' : brightness > baseline ? '#ffd600' : '#00f0ff';
+        brightness > threshold ? '#dc3232' : brightness > baseline ? '#d97706' : '#c8a35a';
       ctx.fillStyle = brightColor;
       ctx.fillRect(0, barY, brightW, barH);
 
@@ -183,7 +183,7 @@ export function CameraPreview({
             Camera Feed
           </span>
           <div className="flex items-center gap-2">
-            <span className="text-[9px] font-mono" style={{ color: brightness > threshold ? '#ff2d55' : '#00f0ff' }}>
+            <span className="text-[9px] font-mono" style={{ color: brightness > threshold ? '#dc3232' : '#c8a35a' }}>
               {Math.round(brightness)}
             </span>
             <button

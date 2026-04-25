@@ -15,7 +15,7 @@ function createWindow() {
     height: 1080,
     minWidth: 1280,
     minHeight: 720,
-    frame: true,
+    frame: false,
     backgroundColor: '#060a12',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -30,6 +30,19 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  mainWindow.on('maximize', () =>
+    mainWindow?.webContents.send('window:maximizeChanged', true)
+  );
+  mainWindow.on('unmaximize', () =>
+    mainWindow?.webContents.send('window:maximizeChanged', false)
+  );
+  mainWindow.on('enter-full-screen', () =>
+    mainWindow?.webContents.send('window:fullscreenChanged', true)
+  );
+  mainWindow.on('leave-full-screen', () =>
+    mainWindow?.webContents.send('window:fullscreenChanged', false)
+  );
 
   mainWindow.on('closed', () => {
     mainWindow = null;

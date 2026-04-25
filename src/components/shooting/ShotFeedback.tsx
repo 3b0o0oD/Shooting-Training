@@ -10,21 +10,22 @@ interface ShotFeedbackProps {
  * Shows score popup, hit ring pulse, and screen flash.
  */
 export function ShotFeedback({ shot }: ShotFeedbackProps) {
-  const hue = (shot.score / 10) * 120;
-  const color = `hsl(${hue}, 100%, 50%)`;
   const isBullseye = shot.score >= 10;
+  const isGood = shot.score >= 8;
+  // Warm color scheme: gold for good, amber for mid, red for poor
+  const color = isBullseye ? '#4ade80' : isGood ? '#c8a35a' : shot.score >= 5 ? '#d97706' : '#dc3232';
 
   return (
     <>
       {/* Screen edge flash */}
       <motion.div
-        initial={{ opacity: 0.6 }}
+        initial={{ opacity: 0.5 }}
         animate={{ opacity: 0 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.3 }}
         className="absolute inset-0 pointer-events-none z-30"
         style={{
-          boxShadow: `inset 0 0 100px ${isBullseye ? 'rgba(0, 255, 136, 0.3)' : 'rgba(255, 107, 0, 0.2)'}`,
+          boxShadow: `inset 0 0 80px ${isBullseye ? 'rgba(74, 222, 128, 0.25)' : isGood ? 'rgba(200, 163, 90, 0.2)' : 'rgba(217, 119, 6, 0.15)'}`,
         }}
       />
 
@@ -35,25 +36,16 @@ export function ShotFeedback({ shot }: ShotFeedbackProps) {
         exit={{ opacity: 0, y: -120, scale: 0.8 }}
         transition={{ duration: 0.8, ease: 'easeOut' }}
         className="absolute z-40 pointer-events-none"
-        style={{
-          left: '50%',
-          top: '40%',
-          transform: 'translateX(-50%)',
-        }}
+        style={{ left: '50%', top: '40%', transform: 'translateX(-50%)' }}
       >
         <div className="text-center">
-          {/* Score number */}
           <div
             className="font-hud text-6xl font-black"
-            style={{
-              color,
-              textShadow: `0 0 20px ${color}, 0 0 60px ${color}`,
-            }}
+            style={{ color, textShadow: `0 0 20px ${color}, 0 0 50px ${color}` }}
           >
             {shot.score}
           </div>
 
-          {/* Bullseye text */}
           {isBullseye && (
             <motion.div
               initial={{ opacity: 0, scale: 0 }}
@@ -67,9 +59,9 @@ export function ShotFeedback({ shot }: ShotFeedbackProps) {
         </div>
       </motion.div>
 
-      {/* Hit ring pulse effect */}
+      {/* Hit ring pulse */}
       <motion.div
-        initial={{ scale: 0, opacity: 0.8 }}
+        initial={{ scale: 0, opacity: 0.7 }}
         animate={{ scale: 3, opacity: 0 }}
         transition={{ duration: 0.8, ease: 'easeOut' }}
         className="absolute pointer-events-none z-30"

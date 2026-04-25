@@ -6,6 +6,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.invoke('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
   fullscreen: () => ipcRenderer.invoke('window:fullscreen'),
+  onMaximizeChanged: (callback) => {
+    ipcRenderer.on('window:maximizeChanged', (_e, value) => callback(value));
+    return () => ipcRenderer.removeAllListeners('window:maximizeChanged');
+  },
+  onFullscreenChanged: (callback) => {
+    ipcRenderer.on('window:fullscreenChanged', (_e, value) => callback(value));
+    return () => ipcRenderer.removeAllListeners('window:fullscreenChanged');
+  },
 
   getDisplays: () => ipcRenderer.invoke('displays:getAll'),
   onDisplaysChanged: (callback) => {

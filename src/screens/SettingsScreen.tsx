@@ -70,10 +70,9 @@ export function SettingsScreen() {
           className="text-center mb-8"
         >
           <h2
-            className="font-hud text-3xl text-tactical-yellow tracking-[0.2em]"
-            style={{ textShadow: '0 0 20px rgba(255, 214, 0, 0.3)' }}
+            className="font-hud text-3xl text-tactical-accent tracking-[0.2em] text-glow-gold"
           >
-            Shooting training simulator
+            Zero Bullet
           </h2>
           <div className="text-sm text-slate-500 font-tactical tracking-wider mt-1">
             System Configuration
@@ -89,7 +88,7 @@ export function SettingsScreen() {
               className={`flex items-center gap-2 px-4 py-2 text-sm font-tactical tracking-wider uppercase transition-all ${
                 activeTab === tab.id
                   ? 'border-b-2 border-tactical-accent text-tactical-accent'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-amber-900/50 hover:text-amber-600/80'
               }`}
             >
               {/* <span>{tab.icon}</span> */}

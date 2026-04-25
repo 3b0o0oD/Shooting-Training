@@ -1,153 +1,190 @@
 import { motion } from 'framer-motion';
 import { useAppStore } from '../store/useAppStore';
-import { ParticleField } from '../components/effects/ParticleField';
+import menuBg from '../assets/main-menu-bg.png';
 
 const menuItems = [
-  {
-    label: 'Start Shooting',
-    screen: 'shooting' as const,
-    description: 'Begin a live shooting session',
-    color: 'cyan',
-  },
-  {
-    label: 'Speed Drill',
-    screen: 'speed-drill' as const,
-    description: 'Hit random targets before they disappear',
-    color: 'green',
-  },
-  {
-    label: 'Calibration',
-    screen: 'calibration' as const,
-    description: 'Setup and calibrate your system',
-    color: 'orange',
-  },
-  {
-    label: 'Settings',
-    screen: 'settings' as const,
-    description: 'Configure targets, cameras, and detection',
-    color: 'yellow',
-  },
+  { label: 'Start Shooting', screen: 'shooting' as const, primary: true },
+  { label: 'Speed Drill', screen: 'speed-drill' as const, primary: false },
+  { label: 'Calibration', screen: 'calibration' as const, primary: false },
+  { label: 'Settings', screen: 'settings' as const, primary: false },
 ];
-
-const colorMap: Record<string, string> = {
-  cyan: '#00f0ff',
-  orange: '#ff6b00',
-  green: '#00ff88',
-  yellow: '#ebff0dff',
-};
 
 export function MainMenu() {
   const setScreen = useAppStore((s) => s.setScreen);
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center relative">
-      {/* Background effects */}
-      <ParticleField />
-      <div className="scan-line absolute inset-0 pointer-events-none" />
+    <div className="w-full h-full relative overflow-hidden">
+      {/* Background image */}
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage: `url(${menuBg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      />
 
-      {/* Vignette */}
+      {/* Left-side panel gradient */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(ellipse at center, transparent 40%, rgba(6,10,18,0.8) 100%)',
+            'linear-gradient(to right, rgba(8,5,2,0.97) 0%, rgba(8,5,2,0.93) 32%, rgba(8,5,2,0.6) 52%, rgba(8,5,2,0.15) 70%, transparent 85%)',
         }}
       />
 
-      {/* Logo */}
-      <motion.div
-        initial={{ opacity: 0, y: -40 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, ease: 'easeOut' }}
-        className="relative z-10 mb-16 text-center"
-      >
-        <h1 className="font-hud text-7xl font-black tracking-[0.2em] text-tactical-accent text-glow-cyan">
-          SHOOTING TRAINING - PoC
-        </h1>
-        {/* <div className="flex items-center justify-center gap-3 mt-3">
-          <div className="h-px w-16 bg-gradient-to-r from-transparent to-tactical-accent/50" />
-          <span className="font-tactical text-sm tracking-[0.4em] text-slate-400 uppercase">
-            Target Training System
-          </span>
-          <div className="h-px w-16 bg-gradient-to-l from-transparent to-tactical-accent/50" />
-        </div> */}
-      </motion.div>
+      {/* Top / bottom vignette */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            'linear-gradient(to bottom, rgba(8,5,2,0.55) 0%, transparent 22%, transparent 78%, rgba(8,5,2,0.75) 100%)',
+        }}
+      />
 
-      {/* Menu items */}
-      <div className="relative z-10 flex flex-col gap-3 w-full max-w-md px-8">
-        {menuItems.map((item, index) => (
-          <motion.button
-            key={item.screen}
-            initial={{ opacity: 0, x: -30 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.4, delay: 0.3 + index * 0.1 }}
-            onClick={() => setScreen(item.screen)}
-            className="group relative flex items-center gap-4 px-6 py-4 text-left transition-all duration-200 hover:pl-8"
+      {/* Scan-line overlay */}
+      <div className="scan-line absolute inset-0 pointer-events-none" />
+
+      {/* Left content column */}
+      <div
+        className="relative z-10 h-full flex flex-col justify-center pl-14"
+        style={{ maxWidth: 500 }}
+      >
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, x: -24 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.7, ease: 'easeOut' }}
+          className="mb-12"
+        >
+          {/* Tag */}
+          <div className="flex items-center gap-2 mb-5">
+            <div className="w-1.5 h-1.5 rotate-45 bg-amber-600" />
+            <span className="font-mono text-xs tracking-[0.35em] uppercase text-amber-900/70">
+              Tactical Training System
+            </span>
+          </div>
+
+          {/* Title */}
+          <h1
+            className="font-hud font-black leading-none tracking-[0.12em]"
             style={{
-              border: `1px solid ${colorMap[item.color]}22`,
-              background: `linear-gradient(135deg, ${colorMap[item.color]}05, transparent)`,
-              clipPath:
-                'polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px))',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = `${colorMap[item.color]}66`;
-              e.currentTarget.style.background = `linear-gradient(135deg, ${colorMap[item.color]}15, transparent)`;
-              e.currentTarget.style.boxShadow = `0 0 30px ${colorMap[item.color]}15, inset 0 0 30px ${colorMap[item.color]}05`;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = `${colorMap[item.color]}22`;
-              e.currentTarget.style.background = `linear-gradient(135deg, ${colorMap[item.color]}05, transparent)`;
-              e.currentTarget.style.boxShadow = 'none';
+              fontSize: '5rem',
+              color: '#f0deb0',
+              textShadow: '0 2px 32px rgba(200,155,50,0.22)',
             }}
           >
-            {/* Index number */}
-            <span
-              className="font-hud text-2xl font-bold opacity-30 group-hover:opacity-70 transition-opacity"
-              style={{ color: colorMap[item.color] }}
-            >
-              {String(index + 1).padStart(2, '0')}
-            </span>
+            ZERO
+          </h1>
+          <div
+            className="font-hud font-bold tracking-[0.38em] mt-1"
+            style={{ fontSize: '2.4rem', color: '#c8a35a' }}
+          >
+            Bullet
+          </div>
 
-            {/* Text */}
-            <div className="flex-1">
+          {/* Divider */}
+          <div className="flex items-center gap-3 mt-5">
+            <div
+              className="h-px w-16"
+              style={{
+                background: 'linear-gradient(to right, #b8903a, transparent)',
+              }}
+            />
+            <span className="font-mono text-xs tracking-[0.3em] text-amber-900/50">
+              PoC v0.1
+            </span>
+          </div>
+        </motion.div>
+
+        {/* Menu */}
+        <nav className="flex flex-col">
+          {menuItems.map((item, index) => (
+            <motion.button
+              key={item.screen}
+              initial={{ opacity: 0, x: -16 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.4, delay: 0.3 + index * 0.09 }}
+              onClick={() => setScreen(item.screen)}
+              className="group flex items-center gap-4 py-3.5 text-left transition-[padding] duration-200"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.paddingLeft = '10px';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.paddingLeft = '0px';
+              }}
+            >
+              {/* Index */}
+              <span
+                className={`font-mono text-xs w-5 shrink-0 transition-colors duration-200 ${
+                  item.primary
+                    ? 'text-amber-600'
+                    : 'text-amber-900/40 group-hover:text-amber-700/60'
+                }`}
+              >
+                {String(index + 1).padStart(2, '0')}
+              </span>
+
+              {/* Dash */}
               <div
-                className="font-tactical text-lg font-semibold tracking-wider uppercase transition-colors"
-                style={{ color: colorMap[item.color] }}
+                className={`h-px shrink-0 transition-all duration-300 ${
+                  item.primary
+                    ? 'w-5 bg-amber-500/80'
+                    : 'w-3 bg-amber-900/40 group-hover:w-5 group-hover:bg-amber-600/60'
+                }`}
+              />
+
+              {/* Label */}
+              <span
+                className={`font-tactical text-lg font-semibold tracking-[0.12em] uppercase transition-colors duration-200 ${
+                  item.primary
+                    ? 'text-amber-100 group-hover:text-white'
+                    : 'text-amber-800/70 group-hover:text-amber-300'
+                }`}
               >
                 {item.label}
-              </div>
-              <div className="text-xs text-slate-500 font-tactical tracking-wide">
-                {item.description}
-              </div>
-            </div>
+              </span>
 
-            {/* Arrow */}
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              className="opacity-0 group-hover:opacity-70 transition-all transform group-hover:translate-x-1"
-              style={{ stroke: colorMap[item.color] }}
-              strokeWidth="1.5"
-            >
-              <path d="M3 8h10M9 4l4 4-4 4" />
-            </svg>
-          </motion.button>
-        ))}
+              {/* Arrow */}
+              <span className="ml-auto font-mono text-base text-amber-500 opacity-0 group-hover:opacity-50 transition-all duration-200 translate-x-0 group-hover:translate-x-1">
+                ›
+              </span>
+            </motion.button>
+          ))}
+        </nav>
+
+        {/* Exit button */}
+        <motion.button
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.8 }}
+          onClick={() => window.electronAPI?.close()}
+          className="group flex items-center gap-4 py-3.5 mt-6 text-left transition-[padding] duration-200 border-t border-amber-900/15 pt-5"
+          onMouseEnter={(e) => { e.currentTarget.style.paddingLeft = '10px'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.paddingLeft = '0px'; }}
+        >
+          <span className="font-mono text-xs w-5 shrink-0 text-red-900/50 group-hover:text-red-600/70 transition-colors duration-200">
+            ✕
+          </span>
+          <div className="h-px w-3 shrink-0 bg-red-900/30 group-hover:w-5 group-hover:bg-red-600/50 transition-all duration-300" />
+          <span className="font-tactical text-lg font-semibold tracking-[0.12em] uppercase text-red-900/50 group-hover:text-red-500/80 transition-colors duration-200">
+            Exit
+          </span>
+        </motion.button>
+
+        {/* Footer */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.1 }}
+          className="mt-14"
+        >
+          <div className="h-px w-10 bg-amber-900/30 mb-3" />
+          {/* <p className="font-mono text-xs tracking-widest text-amber-900/40">
+            FIELD OPERATIONS — AUTHORIZED USE ONLY
+          </p> */}
+        </motion.div>
       </div>
-
-      {/* Footer */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1 }}
-        className="absolute bottom-6 text-center z-10"
-      >
-        {/* <p className="text-[10px] text-slate-600 font-mono tracking-wider">
-          Shooting trainig simulator
-        </p> */}
-      </motion.div>
     </div>
   );
 }

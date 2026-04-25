@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react';
 import type { TargetConfig, ProjectionConfig, Shot, Point2D } from '../../types';
+import { drawTargetOnCanvas } from '../../utils/targetRenderer';
 
 interface TargetCanvasProps {
   target: TargetConfig;
@@ -26,7 +27,6 @@ export function TargetCanvas({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -37,27 +37,16 @@ export function TargetCanvas({
     canvas.height = displayHeight * dpr;
     ctx.scale(dpr, dpr);
 
-    // Scale from projector coordinates to our display
     const scaleX = displayWidth / projection.width;
     const scaleY = displayHeight / projection.height;
 
-    // Clear
-    ctx.fillStyle = '#000202ff';
+    ctx.fillStyle = '#080502';
     ctx.fillRect(0, 0, displayWidth, displayHeight);
 
-    // Draw target rings (same layout as projector)
     drawTarget(ctx, target, projection, displayWidth, displayHeight, scaleX, scaleY);
-
-    // Draw current aiming trace
     drawTrace(ctx, currentTrace, scaleX, scaleY);
-
-    // Draw previous shots
     drawShots(ctx, shots, scaleX, scaleY, projection.hitMarkerSize);
-
-    // Draw current IR position crosshair
-    if (irPosition) {
-      drawCrosshair(ctx, irPosition, scaleX, scaleY);
-    }
+    if (irPosition) drawCrosshair(ctx, irPosition, scaleX, scaleY);
   }, [target, projection, shots, currentTrace, irPosition]);
 
   return (
@@ -76,67 +65,25 @@ function drawTarget(
   displayWidth: number,
   displayHeight: number,
   scaleX: number,
-  scaleY: number
+  scaleY: number,
 ) {
-  // Target center and radius in projector coords, then scaled to display
   const shortSide = Math.min(projection.width, projection.height);
   const targetRadiusProj = (shortSide * projection.targetSizePercent) / 200;
-
   const cx = (projection.width / 2 + projection.targetOffset.x) * scaleX;
   const cy = (projection.height / 2 + projection.targetOffset.y) * scaleY;
-  const scale = Math.min(scaleX, scaleY);
-  const targetRadius = targetRadiusProj * scale;
+  const targetRadius = targetRadiusProj * Math.min(scaleX, scaleY);
 
-  // Draw rings from outside in
-  const rings = [...target.scoringRings].reverse();
-  for (let i = 0; i < rings.length; i++) {
-    const ring = rings[i];
-    const radius = ring.radiusPercent * targetRadius;
+  drawTargetOnCanvas(ctx, target, cx, cy, targetRadius);
 
-    // Ring fill — subtle dark theme
-    if (ring.score <= 3) {
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.08)';
-    } else if (ring.score <= 6) {
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(0,240,255,0.06)' : 'rgba(0,240,255,0.03)';
-    } else if (ring.score <= 9) {
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(0,240,255,0.08)' : 'rgba(0,240,255,0.05)';
-    } else {
-      ctx.fillStyle = 'rgba(255, 45, 85, 0.2)';
-    }
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Ring border
-    ctx.strokeStyle = `rgba(0, 240, 255, ${0.08 + ring.score * 0.015})`;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // Score label
-    if (ring.score >= 3 && ring.score <= 10) {
-      ctx.fillStyle = `rgba(0, 240, 255, ${0.2 + ring.score * 0.03})`;
-      ctx.font = `${Math.max(9, targetRadius * 0.05)}px Rajdhani`;
-      ctx.textAlign = 'center';
-      ctx.fillText(String(ring.score), cx, cy - radius + targetRadius * 0.04);
-    }
-  }
-
-  // Center dot
+  // Dashed crosshair overlay on the control screen to mark centre
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([4, 6]);
   ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(2, targetRadius * 0.012), 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0, 240, 255, 0.6)';
-  ctx.fill();
-
-  // Crosshair through center
-  ctx.strokeStyle = 'rgba(0, 240, 255, 0.06)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(cx, 0);
-  ctx.lineTo(cx, displayHeight);
-  ctx.moveTo(0, cy);
-  ctx.lineTo(displayWidth, cy);
+  ctx.moveTo(cx, 0); ctx.lineTo(cx, displayHeight);
+  ctx.moveTo(0, cy); ctx.lineTo(displayWidth, cy);
   ctx.stroke();
+  ctx.setLineDash([]);
 }
 
 function drawTrace(
@@ -215,7 +162,7 @@ function drawCrosshair(
   const y = position.y * scaleY;
   const size = 15;
 
-  ctx.strokeStyle = 'rgba(255, 45, 85, 0.8)';
+  ctx.strokeStyle = 'rgba(200, 163, 90, 0.85)';
   ctx.lineWidth = 1.5;
 
   ctx.beginPath();
@@ -231,6 +178,6 @@ function drawCrosshair(
 
   ctx.beginPath();
   ctx.arc(x, y, 2, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255, 45, 85, 0.9)';
+  ctx.fillStyle = 'rgba(200, 163, 90, 0.9)';
   ctx.fill();
 }

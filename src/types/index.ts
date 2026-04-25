@@ -37,6 +37,10 @@ export interface TargetConfig {
   ringColors?: string[];     // Colors for each ring band
   bullseyeColor?: string;
   backgroundColor?: string;
+  /** If set, render this image instead of procedural rings on the projector and control screen */
+  imagePath?: string;
+  /** 'disc' = black aiming disc on cream paper (ISSF-style). 'classic' = white/black alternating rings. Default: 'classic' */
+  targetStyle?: 'classic' | 'disc';
 }
 
 // ─── Projection Types ───
@@ -184,6 +188,8 @@ declare global {
       close: () => Promise<void>;
       isMaximized: () => Promise<boolean>;
       fullscreen: () => Promise<void>;
+      onMaximizeChanged: (callback: (isMaximized: boolean) => void) => () => void;
+      onFullscreenChanged: (callback: (isFullscreen: boolean) => void) => () => void;
       getDisplays: () => Promise<DisplayInfo[]>;
       onDisplaysChanged: (callback: () => void) => () => void;
       openProjectorWindow: (displayIndex: number) => Promise<{ width: number; height: number }>;
