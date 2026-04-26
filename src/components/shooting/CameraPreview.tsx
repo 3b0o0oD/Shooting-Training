@@ -5,7 +5,6 @@ interface CameraPreviewProps {
   videoElement: HTMLVideoElement | null;
   irPosition: Point2D | null;
   brightness: number;
-  baseline: number;
   threshold: number;
   isVisible: boolean;
   onClose: () => void;
@@ -19,7 +18,6 @@ export function CameraPreview({
   videoElement,
   irPosition,
   brightness,
-  baseline,
   threshold,
   isVisible,
   onClose,
@@ -118,18 +116,9 @@ export function CameraPreview({
       ctx.lineTo(threshX, barY + barH + 1);
       ctx.stroke();
 
-      // Baseline
-      const baseX = (baseline / 255) * displayW;
-      ctx.strokeStyle = 'rgba(200, 163, 90, 0.5)';
-      ctx.beginPath();
-      ctx.moveTo(baseX, barY - 1);
-      ctx.lineTo(baseX, barY + barH + 1);
-      ctx.stroke();
-
       // Current brightness
       const brightW = (brightness / 255) * displayW;
-      const brightColor =
-        brightness > threshold ? '#dc3232' : brightness > baseline ? '#d97706' : '#c8a35a';
+      const brightColor = brightness > threshold ? '#dc3232' : '#d97706';
       ctx.fillStyle = brightColor;
       ctx.fillRect(0, barY, brightW, barH);
 
@@ -138,7 +127,7 @@ export function CameraPreview({
 
     rafRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [isVisible, videoElement, irPosition, brightness, baseline, threshold]);
+  }, [isVisible, videoElement, irPosition, brightness, threshold]);
 
   // Drag handling
   const handleMouseDown = (e: React.MouseEvent) => {

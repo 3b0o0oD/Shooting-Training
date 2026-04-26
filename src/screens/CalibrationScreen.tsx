@@ -80,7 +80,7 @@ export function CalibrationScreen() {
     setScreen,
   } = useAppStore();
 
-  const { videoRef, isReady, error, switchPreset, autoAdjustTrackingExposure } = useCamera(cameraConfig);
+  const { videoRef, isReady, error, switchPreset } = useCamera(cameraConfig);
   const [step, setStep] = useState<CalibStep>('setup');
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [selectedDisplay, setSelectedDisplay] = useState(0);
@@ -88,7 +88,6 @@ export function CalibrationScreen() {
   const [collectedPoints, setCollectedPoints] = useState<CalibrationPoint[]>([]);
   const [autoStatus, setAutoStatus] = useState('');
   const [brightness, setBrightness] = useState(0);
-  const [baseline, setBaseline] = useState(0);
   const [showCamera, setShowCamera] = useState(true);
   const [rawCameraPosition, setRawCameraPosition] = useState<Point2D | null>(null);
   const [irPosition, setIrPosition] = useState<Point2D | null>(null);
@@ -154,7 +153,6 @@ export function CalibrationScreen() {
   const handleFrame = useCallback(
     (result: DetectionResult) => {
       setBrightness(result.brightness);
-      setBaseline(result.baseline ?? 0);
       setRawCameraPosition(result.position);
       setIrPosition(result.position);
 
@@ -184,10 +182,10 @@ export function CalibrationScreen() {
     [step],
   );
 
-  const { reset: resetDetector, captureBaseline, setROI } = useDetectionLoop(
+  const { reset: resetDetector, setROI } = useDetectionLoop(
     videoRef.current,
     detectionConfig,
-    isReady && (step === 'testing' || step === 'adjusting'),
+    isReady && (step === 'testing' || step === 'adjusting' || step === 'projecting'),
     handleFrame,
   );
 
@@ -371,8 +369,8 @@ export function CalibrationScreen() {
       setAutoStatus('Calibration complete!');
       setStep('testing');
 
-      // Reset the IR detector so the brightness baseline starts fresh
-      // against the dark target instead of the bright calibration markers
+      // Reset detector state (hot pixels, threshold history) accumulated during
+      // the bright calibration phase before switching to dark tracking mode.
       resetDetector();
 
       const { activeTarget, projectionConfig: proj } = useAppStore.getState();
@@ -380,12 +378,9 @@ export function CalibrationScreen() {
         api.sendToProjector({ type: 'show-target', target: activeTarget, projection: proj });
       }
 
-      // Wait for the target to display and settle, then capture baseline
-      // This is critical: the baseline subtraction eliminates the projected
-      // target from detection, so only the laser flash is detected.
-      // Switch to irTracking preset (Brightness=-48, Gain=20, Saturation=128).
-      // This makes the projected target fall below TrackingThreshold=220 so only
-      // the laser dot triggers detection during the testing phase.
+      // Switch to irTracking preset: Brightness=−48, Gain=20, Saturation=128.
+      // This darkens the camera so the projected target falls below TrackingThreshold=220
+      // while the laser dot (far brighter) still exceeds it — no baseline subtraction needed.
       await switchPreset('irTracking');
       console.log('[Calibration] Switched to irTracking preset for testing');
       await sleep(800);
@@ -486,8 +481,7 @@ export function CalibrationScreen() {
         videoElement={videoRef.current}
         irPosition={rawCameraPosition}
         brightness={brightness}
-        baseline={baseline}
-        threshold={detectionConfig.brightnessThreshold}
+        threshold={detectionConfig.trackingThreshold}
         isVisible={showCamera}
         onClose={() => setShowCamera(false)}
       />
@@ -526,7 +520,7 @@ export function CalibrationScreen() {
                 <p>2. Select the projector display below</p>
                 <p>3. Position your camera to see the projected area</p>
                 <p>4. Click begin — calibration runs automatically</p>
-                <p>5. The system projects 4 markers and detects them in the camera</p>
+                <p>5. The system projects 25 markers (5×5 grid) and detects them automatically</p>
               </div>
               <div className="mt-4">
                 <div className="text-[10px] text-slate-500 font-mono uppercase tracking-wider mb-2">Projector Display</div>

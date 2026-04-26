@@ -13,6 +13,31 @@ import type {
   Point2D,
 } from '../types';
 
+export const DEFAULT_DETECTION: DetectionConfig = {
+  trackingThreshold: 220,     // CameraParameters.ini TrackingThreshold3
+  minBrightness: 220,         // Match trackingThreshold — rejects blobs that barely cleared it
+  shotConnectedDistance: 50,  // SLDriver: ShotConnectedDistance
+  thresholdBumpStep: 2,       // SLDriver: ThresholdBump — 0 to disable
+  shotCooldown: 100,          // SLDriver: shotDelay = 0.10s (Settings.ini)
+};
+
+export const DEFAULT_CAMERA: CameraConfig = {
+  deviceId: '',
+  width: 640,
+  height: 480,
+  flipHorizontal: false,
+  flipVertical: false,
+};
+
+export const DEFAULT_PROJECTION: ProjectionConfig = {
+  displayIndex: 0,
+  width: 1920,
+  height: 1080,
+  targetSizePercent: 80,
+  targetOffset: { x: 0, y: 0 },
+  hitMarkerSize: 12,
+};
+
 interface AppState {
   // Navigation
   currentScreen: AppScreen;
@@ -31,6 +56,7 @@ interface AppState {
   // Detection
   detectionConfig: DetectionConfig;
   setDetectionConfig: (config: Partial<DetectionConfig>) => void;
+  resetSettings: () => void;
   isTracking: boolean;
   setTracking: (tracking: boolean) => void;
   currentBrightness: number;
@@ -76,36 +102,6 @@ interface AppState {
 
 const DEFAULT_TARGET: TargetConfig = TARGET_LIBRARY[0];
 
-const DEFAULT_DETECTION: DetectionConfig = {
-  mode: 'flash',
-  brightnessThreshold: 15,
-  flashSpikeMultiplier: 1.5,
-  dwellRadius: 10,
-  dwellTime: 150,
-  blurRadius: 11,
-  minBrightness: 5,
-  trackingThreshold: 220,     // CameraParameters.ini TrackingThreshold3
-  shotConnectedDistance: 50,  // SLDriver: ShotConnectedDistance
-  thresholdBumpStep: 2,       // SLDriver: ThresholdBump — 0 to disable
-};
-
-const DEFAULT_CAMERA: CameraConfig = {
-  deviceId: '',
-  width: 640,
-  height: 480,
-  flipHorizontal: false,
-  flipVertical: false,
-};
-
-const DEFAULT_PROJECTION: ProjectionConfig = {
-  displayIndex: 0,
-  width: 1920,
-  height: 1080,
-  targetSizePercent: 80,
-  targetOffset: { x: 0, y: 0 },
-  hitMarkerSize: 12,
-};
-
 const DEFAULT_CALIBRATION: CalibrationProfile = {
   id: 'default',
   name: 'Default',
@@ -141,6 +137,12 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({
       detectionConfig: { ...state.detectionConfig, ...config },
     })),
+  resetSettings: () =>
+    set({
+      cameraConfig: { ...DEFAULT_CAMERA },
+      projectionConfig: { ...DEFAULT_PROJECTION },
+      detectionConfig: { ...DEFAULT_DETECTION },
+    }),
   isTracking: false,
   setTracking: (tracking) => set({ isTracking: tracking }),
   currentBrightness: 0,

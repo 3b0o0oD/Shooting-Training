@@ -92,74 +92,6 @@ export function useCamera(config: CameraConfig) {
     }
   }, []);
 
-  /**
-   * Set camera exposure for tracking mode.
-   * Uses a fixed exposure that matches what worked during calibration testing.
-   * The projector flicker makes auto-adjustment unreliable, so we pick
-   * a known-good exposure level (~80µs for this camera) and let baseline
-   * subtraction handle the rest.
-   */
-  const autoAdjustTrackingExposure = useCallback(async (
-    sampleFn: () => Promise<number>,
-  ): Promise<number> => {
-    const stream = streamRef.current;
-    if (!stream) return 0;
-    const track = stream.getVideoTracks()[0];
-    if (!track) return 0;
-    const caps = track.getCapabilities?.() as any;
-    if (!caps?.exposureTime) return 0;
-
-    const brightnessVal = caps?.brightness ? Math.round(caps.brightness.min * 0.5) : -32;
-
-    // Strategy: start high and step down until we find an exposure where
-    // the rawPeak is in the 100-200 range. Take the FIRST one that works
-    // (don't keep iterating — the flicker causes oscillation).
-    const testExposures = [500, 300, 200, 150, 100, 80, 60, 40];
-
-    for (const exp of testExposures) {
-      try {
-        await track.applyConstraints({
-          advanced: [{
-            exposureMode: 'manual',
-            exposureTime: exp,
-            brightness: brightnessVal,
-          } as any],
-        } as any);
-      } catch { /* ignore */ }
-
-      // Wait for camera to settle and take multiple samples
-      await new Promise(r => setTimeout(r, 500));
-      let maxPeak = 0;
-      for (let s = 0; s < 5; s++) {
-        const p = await sampleFn();
-        if (p > maxPeak) maxPeak = p;
-        await new Promise(r => setTimeout(r, 80));
-      }
-      console.log(`[camera] Tracking test: exp=${exp}µs, maxPeak=${Math.round(maxPeak)}`);
-
-      // Accept the first exposure where the peak is in a usable range
-      // (not saturated, but bright enough for the laser to stand out)
-      if (maxPeak >= 100 && maxPeak <= 220) {
-        console.log(`[camera] Tracking locked: exp=${exp}µs (maxPeak=${Math.round(maxPeak)})`);
-        return exp;
-      }
-    }
-
-    // Fallback: use 80µs which worked in calibration testing
-    const fallback = 80;
-    try {
-      await track.applyConstraints({
-        advanced: [{
-          exposureMode: 'manual',
-          exposureTime: fallback,
-          brightness: brightnessVal,
-        } as any],
-      } as any);
-    } catch { /* ignore */ }
-    console.log(`[camera] Tracking fallback: exp=${fallback}µs`);
-    return fallback;
-  }, []);
-
   useEffect(() => {
     enumerateDevices().then(() => startCamera());
     return () => stopCamera();
@@ -174,7 +106,6 @@ export function useCamera(config: CameraConfig) {
     stopCamera,
     enumerateDevices,
     switchPreset,
-    autoAdjustTrackingExposure,
   };
 }
 

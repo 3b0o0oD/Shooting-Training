@@ -11,6 +11,7 @@ export class ScoringEngine {
   private target: TargetConfig;
   private targetCenter: Point2D;
   private targetRadiusPx: number;
+  private bulletRadiusPx: number;
 
   constructor(target: TargetConfig, projection: ProjectionConfig) {
     this.target = target;
@@ -23,6 +24,9 @@ export class ScoringEngine {
       x: projection.width / 2 + projection.targetOffset.x,
       y: projection.height / 2 + projection.targetOffset.y,
     };
+
+    // Outward gauging: subtract bullet radius from distance before ring comparison
+    this.bulletRadiusPx = projection.hitMarkerSize / 2;
   }
 
   /**
@@ -33,8 +37,14 @@ export class ScoringEngine {
     const dy = screenPosition.y - this.targetCenter.y;
     const distFromCenter = Math.sqrt(dx * dx + dy * dy);
 
+    // Outward gauging: the bullet hole overlapping a ring counts as inside it.
+    // Inward: raw distance; outward: shrink distance by bullet radius.
+    const effectiveDist = this.target.gaugingMethod === 'outward'
+      ? Math.max(0, distFromCenter - this.bulletRadiusPx)
+      : distFromCenter;
+
     // Normalize distance: 0 = center, 1 = edge of target
-    const normalizedDist = distFromCenter / this.targetRadiusPx;
+    const normalizedDist = effectiveDist / this.targetRadiusPx;
 
     // Find the highest scoring ring the shot falls within
     // Rings are sorted highest score first (10, 9, 8...)

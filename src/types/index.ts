@@ -78,7 +78,7 @@ export interface CalibrationProfile {
   name: string;
   /** 3x3 homography matrix (camera → screen), stored row-major as 9 numbers */
   homography: number[];
-  /** The 4 calibration point pairs used to compute the homography */
+  /** Calibration point pairs used to compute the homography (25 points = 5×5 grid) */
   calibrationPoints: CalibrationPoint[];
   /** Manual fine-tune offset applied after homography (screen pixels) */
   manualOffset: Point2D;
@@ -91,21 +91,18 @@ export interface CalibrationProfile {
 
 // ─── Detection Types ───
 
-export type DetectionMode = 'flash' | 'dwell' | 'hybrid';
-
 export interface DetectionConfig {
-  mode: DetectionMode;
-  brightnessThreshold: number;
-  flashSpikeMultiplier: number;
-  dwellRadius: number;
-  dwellTime: number;
-  blurRadius: number;
-  minBrightness: number;
   /** Absolute pixel brightness threshold — CameraParameters.ini TrackingThreshold3=220 */
   trackingThreshold: number;
   /**
+   * Minimum blob peak brightness to count as a laser hit. Set equal to trackingThreshold
+   * to reject blobs that only barely cleared the threshold (noise). A real laser reads 240–255.
+   */
+  minBrightness: number;
+  /**
    * Max pixel distance between consecutive blob centroids to be considered the same blob.
    * SLDriver: "ShotConnectedDistance". Increase if shots are split; decrease for precision.
+   * Unit: CAMERA-resolution pixels (not processing/480p pixels — IRDetector scales internally).
    */
   shotConnectedDistance: number;
   /**
@@ -114,6 +111,12 @@ export interface DetectionConfig {
    * SLDriver: "ThresholdBump".
    */
   thresholdBumpStep: number;
+  /**
+   * Minimum ms between consecutive shot detections. Prevents a single trigger pull
+   * from registering as multiple shots. Lower for speed drills with rapid fire.
+   * Default: 100ms (SLDriver Settings.ini: shotDelay = 0.10).
+   */
+  shotCooldown: number;
 }
 
 // ─── Session Types ───

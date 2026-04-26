@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store/useAppStore';
 import { useCamera } from '../hooks/useCamera';
@@ -6,7 +6,7 @@ import { useDetectionLoop } from '../hooks/useDetectionLoop';
 import { CalibrationEngine } from '../engine/CalibrationEngine';
 import { CameraPreview } from '../components/shooting/CameraPreview';
 import type { DetectionResult } from '../engine/IRDetector';
-import type { Point2D } from '../types';
+import type { Point2D, ProjectionConfig } from '../types';
 
 interface DrillTarget {
   id: number;
@@ -30,8 +30,8 @@ export function SpeedDrillScreen() {
 
   const { videoRef, isReady, error, switchPreset } = useCamera(cameraConfig);
   const [brightness, setBrightness] = useState(0);
-  const [baseline, setBaseline] = useState(0);
   const [rawCameraPosition, setRawCameraPosition] = useState<Point2D | null>(null);
+  const [irPosition, setIrPosition] = useState<Point2D | null>(null);
   const [showCamera, setShowCamera] = useState(false);
 
   // Drill state
@@ -48,6 +48,10 @@ export function SpeedDrillScreen() {
   const targetsRef = useRef<DrillTarget[]>([]);
   const nextIdRef = useRef(1);
   const calibrationEngine = useRef(new CalibrationEngine(calibrationProfile));
+
+  useEffect(() => {
+    calibrationEngine.current = new CalibrationEngine(calibrationProfile);
+  }, [calibrationProfile]);
 
   // Drill config
   const DRILL_DURATION = 60; // seconds
@@ -86,17 +90,18 @@ export function SpeedDrillScreen() {
       if (!isRunning) return;
 
       setBrightness(result.brightness);
-      setBaseline(result.baseline ?? 0);
 
       if (result.position) {
         setRawCameraPosition(result.position);
 
-        if (result.shotDetected) {
-          const screenPos = isCalibrated
-            ? calibrationEngine.current.cameraToScreen(result.position)
-            : result.position;
+        const screenPos = isCalibrated
+          ? calibrationEngine.current.cameraToScreen(result.position)
+          : result.position;
 
-          if (screenPos) {
+        if (screenPos) {
+          setIrPosition(screenPos);
+
+          if (result.shotDetected) {
             // Check if the shot hit any active target
             let hitTarget: DrillTarget | null = null;
             for (const t of targetsRef.current) {
@@ -104,7 +109,7 @@ export function SpeedDrillScreen() {
               const dx = screenPos.x - t.position.x;
               const dy = screenPos.y - t.position.y;
               const dist = Math.sqrt(dx * dx + dy * dy);
-              if (dist <= t.radius * 1.5) { // 1.5x radius for forgiving hit detection
+              if (dist <= t.radius * 1.5) {
                 hitTarget = t;
                 break;
               }
@@ -121,16 +126,17 @@ export function SpeedDrillScreen() {
         }
       } else {
         setRawCameraPosition(null);
+        setIrPosition(null);
       }
     },
     [isRunning, isCalibrated, removeDrillTarget],
   );
 
-  const { reset: resetDetector, captureBaseline, setROI } = useDetectionLoop(
+  const { reset: resetDetector, setROI } = useDetectionLoop(
     videoRef.current, detectionConfig, isReady && baselineReady, handleFrame,
   );
 
-  // Camera setup (same as ShootingScreen)
+  // Camera setup — identical to ShootingScreen: tracking preset, settle, set ROI
   useEffect(() => {
     if (!isReady) return;
 
@@ -138,31 +144,14 @@ export function SpeedDrillScreen() {
     resetDetector();
 
     const setup = async () => {
-      await switchPreset('calibration');
-
-      await new Promise(r => setTimeout(r, 600));
+      await switchPreset('irTracking');
+      await new Promise(r => setTimeout(r, 800));
 
       if (isCalibrated && calibrationProfile.calibrationPoints.length >= 4) {
         const roi = calibrationEngine.current.getCameraROI(cameraConfig.width, cameraConfig.height);
         if (roi) setROI(roi);
       }
 
-      if (cameraConfig.exposure) {
-        const stream = videoRef.current?.srcObject as MediaStream | null;
-        const track = stream?.getVideoTracks()[0];
-        if (track) {
-          try {
-            await track.applyConstraints({
-              advanced: [{ exposureMode: 'manual', exposureTime: cameraConfig.exposure } as any],
-            } as any);
-          } catch { /* ignore */ }
-        }
-      }
-
-      await new Promise(r => setTimeout(r, 1000));
-      captureBaseline();
-
-      await new Promise(r => setTimeout(r, 1500));
       setBaselineReady(true);
     };
 
@@ -279,12 +268,18 @@ export function SpeedDrillScreen() {
     <div className="w-full h-full relative bg-tactical-darker">
       <video ref={videoRef} className="hidden" playsInline muted />
 
+      {/* Mirror canvas — shows drill targets on the control screen */}
+      <SpeedDrillCanvas
+        targetsRef={targetsRef}
+        projection={projectionConfig}
+        irPosition={irPosition}
+      />
+
       <CameraPreview
         videoElement={videoRef.current}
         irPosition={rawCameraPosition}
         brightness={brightness}
-        baseline={baseline}
-        threshold={detectionConfig.brightnessThreshold}
+        threshold={detectionConfig.trackingThreshold}
         isVisible={showCamera}
         onClose={() => setShowCamera(false)}
       />
@@ -419,4 +414,139 @@ export function SpeedDrillScreen() {
       </div>
     </div>
   );
+}
+
+function SpeedDrillCanvas({
+  targetsRef,
+  projection,
+  irPosition,
+}: {
+  targetsRef: React.RefObject<DrillTarget[]>;
+  projection: ProjectionConfig;
+  irPosition: Point2D | null;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number>(0);
+  const irRef = useRef(irPosition);
+  irRef.current = irPosition;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const draw = () => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const dw = canvas.clientWidth;
+      const dh = canvas.clientHeight;
+      if (canvas.width !== Math.round(dw * dpr) || canvas.height !== Math.round(dh * dpr)) {
+        canvas.width = Math.round(dw * dpr);
+        canvas.height = Math.round(dh * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const scaleX = dw / projection.width;
+      const scaleY = dh / projection.height;
+      const scale = Math.min(scaleX, scaleY);
+
+      ctx.fillStyle = '#080502';
+      ctx.fillRect(0, 0, dw, dh);
+
+      // Dashed centre crosshair (matches TargetCanvas style)
+      const cx = (projection.width / 2) * scaleX;
+      const cy = (projection.height / 2) * scaleY;
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath();
+      ctx.moveTo(cx, 0); ctx.lineTo(cx, dh);
+      ctx.moveTo(0, cy); ctx.lineTo(dw, cy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const now = Date.now();
+      for (const t of (targetsRef.current ?? [])) {
+        const x = t.position.x * scaleX;
+        const y = t.position.y * scaleY;
+        const r = t.radius * scale;
+        const age = now - t.spawnTime;
+
+        if (t.hit) {
+          const alpha = Math.max(0, 1 - age / 400);
+          if (alpha <= 0) continue;
+          ctx.beginPath();
+          ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(0,200,80,${alpha * 0.6})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(0,255,100,${alpha})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          continue;
+        }
+
+        if (t.missed) {
+          const alpha = Math.max(0, 1 - age / 600);
+          if (alpha <= 0) continue;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(255,60,60,${alpha * 0.7})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          continue;
+        }
+
+        const progress = Math.min(1, age / t.lifetime);
+        const pulse = 1 + Math.sin(age / 150) * 0.06;
+
+        ctx.beginPath();
+        ctx.arc(x, y, r * pulse, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,140,0,0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.15, 0, Math.PI * 2);
+        ctx.fillStyle = '#000000';
+        ctx.fill();
+
+        const remaining = 1 - progress;
+        ctx.beginPath();
+        ctx.arc(x, y, r * pulse + 5, -Math.PI / 2, -Math.PI / 2 + remaining * Math.PI * 2);
+        ctx.strokeStyle = `hsl(${remaining * 120},100%,50%)`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // IR crosshair (screen coords)
+      const ir = irRef.current;
+      if (ir) {
+        const x = ir.x * scaleX;
+        const y = ir.y * scaleY;
+        const s = 15;
+        ctx.strokeStyle = 'rgba(200,163,90,0.85)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x - s, y); ctx.lineTo(x - 4, y);
+        ctx.moveTo(x + 4, y); ctx.lineTo(x + s, y);
+        ctx.moveTo(x, y - s); ctx.lineTo(x, y - 4);
+        ctx.moveTo(x, y + 4); ctx.lineTo(x, y + s);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(200,163,90,0.9)';
+        ctx.fill();
+      }
+
+      rafRef.current = requestAnimationFrame(draw);
+    };
+
+    rafRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [targetsRef, projection]);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />;
 }

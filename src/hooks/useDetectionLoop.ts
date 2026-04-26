@@ -79,17 +79,9 @@ export function useDetectionLoop(
     detectorRef.current?.reset();
   }, []);
 
-  const captureBaseline = useCallback(() => {
-    detectorRef.current?.startBaselineCapture();
-  }, []);
-
-  const hasBaseline = useCallback(() => {
-    return detectorRef.current?.hasBaseline() ?? false;
-  }, []);
-
   const setROI = useCallback((roi: { x: number; y: number; w: number; h: number } | null) => {
     detectorRef.current?.setROI(roi);
   }, []);
 
-  return { reset, captureBaseline, hasBaseline, setROI };
+  return { reset, setROI };
 }

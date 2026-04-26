@@ -29,7 +29,6 @@ export function ShootingScreen() {
     setPaused,
     setScreen,
     shotsPerSeries,
-    showDebug,
     toggleDebug,
     activeProfile,
     activeWeapon,
@@ -38,18 +37,25 @@ export function ShootingScreen() {
   // Session ID created when this screen mounts — all shots are persisted under it
   const sessionIdRef = useRef<string>(uuidv4());
 
-  const { videoRef, isReady, error, switchPreset, autoAdjustTrackingExposure } = useCamera(cameraConfig);
+  const { videoRef, isReady, error, switchPreset } = useCamera(cameraConfig);
   const [currentTrace, setCurrentTrace] = useState<Point2D[]>([]);
   const [lastShotFeedback, setLastShotFeedback] = useState<Shot | null>(null);
   const [irPosition, setIrPosition] = useState<Point2D | null>(null);
   const [rawCameraPosition, setRawCameraPosition] = useState<Point2D | null>(null);
   const [brightness, setBrightness] = useState(0);
-  const [baseline, setBaseline] = useState(0);
   const [shotTimer, setShotTimer] = useState(0);
   const [showCamera, setShowCamera] = useState(false);
 
   const scoringEngine = useRef(new ScoringEngine(activeTarget, projectionConfig));
   const calibrationEngine = useRef(new CalibrationEngine(calibrationProfile));
+
+  useEffect(() => {
+    scoringEngine.current = new ScoringEngine(activeTarget, projectionConfig);
+  }, [activeTarget, projectionConfig]);
+
+  useEffect(() => {
+    calibrationEngine.current = new CalibrationEngine(calibrationProfile);
+  }, [calibrationProfile]);
 
   // Create a session in the DB when this screen mounts, end it on unmount
   useEffect(() => {
@@ -95,7 +101,6 @@ export function ShootingScreen() {
       if (isPaused) return;
 
       setBrightness(result.brightness);
-      setBaseline(result.baseline ?? 0);
 
       if (result.position) {
         setRawCameraPosition(result.position);
@@ -158,9 +163,9 @@ export function ShootingScreen() {
 
   const [baselineReady, setBaselineReady] = useState(false);
 
-  const { reset: resetDetector, captureBaseline, setROI } = useDetectionLoop(videoRef.current, detectionConfig, isReady && !isPaused && baselineReady, handleFrame);
+  const { reset: resetDetector, setROI } = useDetectionLoop(videoRef.current, detectionConfig, isReady && !isPaused && baselineReady, handleFrame);
 
-  // Setup: switch to tracking mode, adjust exposure, capture baseline.
+  // Setup: switch to irTracking preset and set ROI once camera is ready.
   // Only runs once the camera is ready.
   useEffect(() => {
     if (!isReady) return;
@@ -248,8 +253,7 @@ export function ShootingScreen() {
         videoElement={videoRef.current}
         irPosition={rawCameraPosition}
         brightness={brightness}
-        baseline={baseline}
-        threshold={detectionConfig.brightnessThreshold}
+        threshold={detectionConfig.trackingThreshold}
         isVisible={showCamera}
         onClose={() => setShowCamera(false)}
       />

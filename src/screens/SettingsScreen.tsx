@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAppStore } from '../store/useAppStore';
+import { DEFAULT_DETECTION, DEFAULT_PROJECTION } from '../store/useAppStore';
 import { TARGET_LIBRARY } from '../data/targets';
 import type { CameraDevice, DisplayInfo } from '../types';
 
@@ -17,7 +18,10 @@ export function SettingsScreen() {
     activeTarget,
     setActiveTarget,
     setScreen,
+    resetSettings,
   } = useAppStore();
+
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('camera');
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
@@ -198,6 +202,7 @@ export function SettingsScreen() {
                 value={projectionConfig.targetSizePercent}
                 min={30}
                 max={100}
+                defaultValue={DEFAULT_PROJECTION.targetSizePercent}
                 onChange={(v) => setProjectionConfig({ targetSizePercent: v })}
               />
 
@@ -206,6 +211,7 @@ export function SettingsScreen() {
                 value={projectionConfig.hitMarkerSize}
                 min={4}
                 max={40}
+                defaultValue={DEFAULT_PROJECTION.hitMarkerSize}
                 onChange={(v) => setProjectionConfig({ hitMarkerSize: v })}
               />
 
@@ -249,8 +255,8 @@ export function SettingsScreen() {
               <div className="p-3 border border-tactical-border/30 rounded text-xs text-slate-500">
                 <strong className="text-slate-400">How it works:</strong> The app opens a
                 full-screen window on the selected display showing the target. Your camera watches
-                the projection wall. During calibration, 4 markers are projected and you shoot each
-                one — this builds a perspective mapping from camera → screen coordinates.
+                the projection wall. During calibration, 25 markers (5×5 grid) are projected and
+                detected automatically — this builds a perspective mapping from camera → screen coordinates.
               </div>
             </div>
           )}
@@ -262,8 +268,19 @@ export function SettingsScreen() {
                 value={detectionConfig.trackingThreshold}
                 min={180}
                 max={254}
-                hint="CameraParameters.ini TrackingThreshold3=220. Raise if false positives occur; lower if shots are missed."
-                onChange={(v) => setDetectionConfig({ trackingThreshold: v })}
+                defaultValue={DEFAULT_DETECTION.trackingThreshold}
+                hint="Pixels above this value are candidate laser hits. CameraParameters.ini TrackingThreshold3=220 (camera darkened to Brightness=−48 so only the laser exceeds it)."
+                onChange={(v) => setDetectionConfig({ trackingThreshold: v, minBrightness: Math.max(detectionConfig.minBrightness, v) })}
+              />
+
+              <SliderSetting
+                label="Min Blob Brightness"
+                value={detectionConfig.minBrightness}
+                min={180}
+                max={254}
+                defaultValue={DEFAULT_DETECTION.minBrightness}
+                hint="Blobs whose peak pixel is below this value are discarded as noise. Keep at or above Tracking Threshold — a real laser reads 240–255 even with the camera darkened."
+                onChange={(v) => setDetectionConfig({ minBrightness: v })}
               />
 
               <SliderSetting
@@ -272,8 +289,20 @@ export function SettingsScreen() {
                 min={5}
                 max={150}
                 step={5}
-                hint="SLDriver: ShotConnectedDistance. Max distance between a new blob and any previous-frame blob to count as the same blob (not a new shot). Increase for slow lasers; decrease for precision."
+                defaultValue={DEFAULT_DETECTION.shotConnectedDistance}
+                hint="SLDriver: ShotConnectedDistance. A new blob within this distance of any previous-frame blob is treated as the same ongoing blob, not a new shot. Units: camera-resolution pixels."
                 onChange={(v) => setDetectionConfig({ shotConnectedDistance: v })}
+              />
+
+              <SliderSetting
+                label="Shot Cooldown (ms)"
+                value={detectionConfig.shotCooldown}
+                min={50}
+                max={500}
+                step={10}
+                defaultValue={DEFAULT_DETECTION.shotCooldown}
+                hint="Minimum time between registered shots. Prevents a single trigger pull from logging multiple hits. SLDriver Settings.ini: shotDelay=0.10 (100 ms)."
+                onChange={(v) => setDetectionConfig({ shotCooldown: v })}
               />
 
               <SliderSetting
@@ -281,15 +310,10 @@ export function SettingsScreen() {
                 value={detectionConfig.thresholdBumpStep}
                 min={0}
                 max={10}
-                hint="SLDriver: ThresholdBump. When too many blobs are detected the threshold auto-raises by this amount. Set to 0 to disable auto-adjustment."
+                defaultValue={DEFAULT_DETECTION.thresholdBumpStep}
+                hint="SLDriver: ThresholdBump. When the rolling average exceeds 4 active blobs, the threshold auto-raises by this amount. Set to 0 to disable. Resets toward base after 90 consecutive zero-blob frames."
                 onChange={(v) => setDetectionConfig({ thresholdBumpStep: v })}
               />
-
-              <div className="p-3 border border-tactical-border/30 rounded text-xs text-slate-500 space-y-1">
-                <div><span className="text-slate-400">Tracking Threshold</span> — pixels above this value are candidate laser hits. Tuned for CameraParameters.ini Channel 3 (Brightness=−48).</div>
-                <div><span className="text-slate-400">Shot Connected Distance</span> — blobs within this radius of a previous-frame blob are treated as the same ongoing blob, not a new shot.</div>
-                <div><span className="text-slate-400">Threshold Bump</span> — auto-raises threshold when the camera sees too many false blobs (projector bleed-through). Resets toward base when scene is dark again.</div>
-              </div>
             </div>
           )}
 
@@ -339,11 +363,36 @@ export function SettingsScreen() {
           )}
         </div>
 
-        {/* Back */}
-        <div className="flex justify-center mt-8 pb-8">
+        {/* Footer */}
+        <div className="flex items-center justify-between mt-8 pb-8">
           <button className="btn-tactical" onClick={() => setScreen('main-menu')}>
             ← Back to Menu
           </button>
+
+          {showResetConfirm ? (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-tactical-orange font-mono">Reset camera, projection &amp; detection to original defaults?</span>
+              <button
+                className="px-3 py-1.5 text-xs font-mono border border-tactical-red text-tactical-red rounded hover:bg-tactical-red/10 transition-colors"
+                onClick={() => { resetSettings(); setShowResetConfirm(false); }}
+              >
+                Confirm Reset
+              </button>
+              <button
+                className="px-3 py-1.5 text-xs font-mono border border-tactical-border text-slate-400 rounded hover:border-slate-400 transition-colors"
+                onClick={() => setShowResetConfirm(false)}
+              >
+                Cancel
+          </button>
+            </div>
+          ) : (
+            <button
+              className="px-3 py-1.5 text-xs font-mono border border-tactical-border text-slate-500 rounded hover:border-tactical-orange hover:text-tactical-orange transition-colors"
+              onClick={() => setShowResetConfirm(true)}
+            >
+              Reset to Defaults
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -368,6 +417,7 @@ function SliderSetting({
   max,
   step = 1,
   hint,
+  defaultValue,
   onChange,
 }: {
   label: string;
@@ -376,8 +426,10 @@ function SliderSetting({
   max: number;
   step?: number;
   hint?: string;
+  defaultValue?: number;
   onChange: (value: number) => void;
 }) {
+  const isModified = defaultValue !== undefined && value !== defaultValue;
   return (
     <SettingGroup label={label}>
       <div className="flex items-center gap-4">
@@ -390,9 +442,14 @@ function SliderSetting({
           onChange={(e) => onChange(Number(e.target.value))}
           className="flex-1 accent-tactical-accent"
         />
-        <span className="font-mono text-sm text-tactical-accent w-16 text-right">
-          {typeof step === 'number' && step < 1 ? value.toFixed(1) : value}
-        </span>
+        <div className="flex flex-col items-end w-16">
+          <span className={`font-mono text-sm ${isModified ? 'text-tactical-orange' : 'text-tactical-accent'}`}>
+            {typeof step === 'number' && step < 1 ? value.toFixed(1) : value}
+          </span>
+          {isModified && (
+            <span className="font-mono text-[9px] text-slate-600">def: {defaultValue}</span>
+          )}
+        </div>
       </div>
       {hint && <div className="text-[10px] text-slate-600 font-mono mt-1 leading-relaxed">{hint}</div>}
     </SettingGroup>
