@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "WebSearch",
+      "WebFetch(domain:manualzz.com)"
+    ]
+  }
+}

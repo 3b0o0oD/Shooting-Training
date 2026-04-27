@@ -83,5 +83,10 @@ export function useDetectionLoop(
     detectorRef.current?.setROI(roi);
   }, []);
 
-  return { reset, setROI };
+  const captureBaseline = useCallback(async (frameCount = 30) => {
+    if (!videoElement || !detectorRef.current) return;
+    await detectorRef.current.captureBaseline(videoElement, frameCount);
+  }, [videoElement]);
+
+  return { reset, setROI, captureBaseline };
 }

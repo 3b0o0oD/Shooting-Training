@@ -119,18 +119,26 @@ function drawDiscTarget(
     ctx.fillText(label, cx + r - pad * 1.2, cy);
   }
 
-  // 5. White filled centre dot (bullseye / score 10)
+  // 5. Centre dot (bullseye / score 10) — light gray instead of pure white so
+  // the projected area doesn't saturate the camera and mask laser hits there.
   const bullseye = rings.find(r => r.score === maxScore);
   if (bullseye) {
     ctx.beginPath();
     ctx.arc(cx, cy, bullseye.radiusPercent * targetRadius, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#c0c0c0';
     ctx.fill();
   }
 }
 
 // ─── Classic style ────────────────────────────────────────────────────────────
-// White outer rings, black inner rings — traditional paper target look.
+// Outer rings: mid-gray (not white) to avoid camera sensor saturation.
+// Inner rings (score > 4): black, for maximum contrast with the laser dot.
+// Bullseye uses the target's bullseyeColor (darkened by caller).
+//
+// WHY gray outer rings: pure white (#fff) projected through the camera can
+// saturate the sensor to 255. In delta mode the baseline is also 255, so a
+// laser hit on that area produces delta=0 and is invisible. Mid-gray keeps
+// the projected area below saturation, leaving headroom for the laser spike.
 
 function drawClassicTarget(
   ctx: CanvasRenderingContext2D,
@@ -140,11 +148,14 @@ function drawClassicTarget(
   targetRadius: number,
 ) {
   const WHITE_ZONE_THRESHOLD = 4;
+  // IR-safe light tones: bright enough to look like paper, dim enough that
+  // camera saturation can't hide the laser (max channel ≤ 180).
+  const OUTER_EVEN = '#aaaaaa'; // was #ffffff
+  const OUTER_ODD  = '#909090'; // was #f0f0f0
 
-  // White paper circle
   ctx.beginPath();
   ctx.arc(cx, cy, targetRadius, 0, Math.PI * 2);
-  ctx.fillStyle = target.backgroundColor ?? '#ffffff';
+  ctx.fillStyle = target.backgroundColor ?? OUTER_EVEN;
   ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.3)';
   ctx.lineWidth = 1;
@@ -155,7 +166,7 @@ function drawClassicTarget(
     const radius = ring.radiusPercent * targetRadius;
 
     ctx.fillStyle = ring.score > WHITE_ZONE_THRESHOLD ? '#000000'
-      : ring.score % 2 === 0 ? '#ffffff' : '#f0f0f0';
+      : ring.score % 2 === 0 ? OUTER_EVEN : OUTER_ODD;
 
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -183,8 +194,9 @@ function drawClassicTarget(
     ctx.fill();
   }
 
+  // Centre pip — small enough that its brightness doesn't mask the laser
   ctx.beginPath();
   ctx.arc(cx, cy, Math.max(2, targetRadius * 0.01), 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = '#aaaaaa';
   ctx.fill();
 }

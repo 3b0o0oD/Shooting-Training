@@ -30,7 +30,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 2,  radiusPercent: 0.86  },
       { score: 1,  radiusPercent: 1.0   },  // outer edge of paper
     ],
-    bullseyeColor: '#ffffff',
+    bullseyeColor: '#c0c0c0',
     backgroundColor: '#c8a882',
   },
 
@@ -52,7 +52,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 1, radiusPercent: 1.0 },
     ],
     gaugingMethod: 'inward',
-    bullseyeColor: '#ff2d55',
+    bullseyeColor: '#cc2244',
     backgroundColor: '#000000',
   },
 
@@ -73,7 +73,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 1, radiusPercent: 1.0 },
     ],
     gaugingMethod: 'inward',
-    bullseyeColor: '#ff2d55',
+    bullseyeColor: '#cc2244',
     backgroundColor: '#000000',
   },
   {
@@ -92,7 +92,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 1, radiusPercent: 1.0 },
     ],
     gaugingMethod: 'outward',
-    bullseyeColor: '#ff2d55',
+    bullseyeColor: '#cc2244',
     backgroundColor: '#000000',
   },
   {
@@ -111,7 +111,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 1, radiusPercent: 1.0 },
     ],
     gaugingMethod: 'outward',
-    bullseyeColor: '#ff2d55',
+    bullseyeColor: '#cc2244',
     backgroundColor: '#000000',
   },
   {
@@ -128,7 +128,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 1, radiusPercent: 1.0 },
     ],
     gaugingMethod: 'inward',
-    bullseyeColor: '#ff2d55',
+    bullseyeColor: '#cc2244',
     backgroundColor: '#000000',
   },
   {
@@ -147,7 +147,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 1, radiusPercent: 1.0 },
     ],
     gaugingMethod: 'inward',
-    bullseyeColor: '#ff2d55',
+    bullseyeColor: '#cc2244',
     backgroundColor: '#000000',
   },
 
@@ -163,7 +163,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 2, radiusPercent: 1.0 },
     ],
     gaugingMethod: 'inward',
-    bullseyeColor: '#ff2d55',
+    bullseyeColor: '#cc2244',
     backgroundColor: '#000000',
   },
   {
@@ -182,7 +182,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 1, radiusPercent: 1.0 },
     ],
     gaugingMethod: 'inward',
-    bullseyeColor: '#00ff88',
+    bullseyeColor: '#00bb66',
     backgroundColor: '#000000',
   },
   {
@@ -195,7 +195,7 @@ export const TARGET_LIBRARY: TargetConfig[] = [
       { score: 2, radiusPercent: 1.0 },
     ],
     gaugingMethod: 'inward',
-    bullseyeColor: '#ffd600',
+    bullseyeColor: '#ccaa00',
     backgroundColor: '#000000',
   },
 ];

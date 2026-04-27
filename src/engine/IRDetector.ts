@@ -6,9 +6,10 @@ export interface DetectionResult {
   shotDetected: boolean;
   timestamp: number;
   stats: {
-    threshold: number;     // Live auto-adjusted threshold (may differ from config if ThresholdBump active)
+    threshold: number;     // Effective threshold (baselineDelta in delta mode, bumped value in absolute mode)
     blobCount: number;     // Active blobs this frame (after hot pixel filter)
     hotPixelCount: number; // Number of masked sensor defect positions
+    mode: 'absolute' | 'delta'; // Detection mode
   };
 }
 
@@ -20,22 +21,21 @@ interface Blob {
 }
 
 /**
- * Laser Shot Detector — replicates the SLDriver/WCDriver detection algorithm
- * from CameraParameters.ini (Channel 3 = tracking mode).
+ * Laser Shot Detector — replicates the SLDriver/WCDriver detection algorithm.
  *
- * Algorithm (reconstructed from SLDriver string analysis):
- *   "Pixel above threshold at %d %d intensity %d threshold %d"
- *   "Found pixels %d blobs %d"
+ * Two detection modes:
  *
- * 1. Camera is set dark (Brightness=-48) so the projected target image falls
- *    below TrackingThreshold (220). Only the laser dot exceeds it.
- * 2. Each frame: find all pixels > TrackingThreshold.
- * 3. Group connected pixels into blobs (BFS flood fill).
- * 4. A blob that was NOT present in the previous frame is a new shot.
- *    ("New" = centroid > ShotConnectedDistance from all previous blobs.)
- * 5. Persistent blobs (hot pixels) are masked after N frames.
+ * ABSOLUTE (default, no baseline captured):
+ *   Camera Brightness=-48 makes the projected scene fall below TrackingThreshold (220).
+ *   ThresholdBump auto-adjusts if needed. Any pixel above threshold is a candidate.
+ *   Works when camera hardware actually applies the brightness setting.
  *
- * No baseline capture required — detection is ready immediately.
+ * DELTA (after captureBaseline() is called):
+ *   Per-pixel background model captured once (no laser). Detection measures how much
+ *   BRIGHTER each pixel is than its baseline value. Works even when camera brightness
+ *   settings aren't applied and the projector bleeds through at the same level as the
+ *   laser — the laser still creates a sudden brightness INCREASE at a specific point.
+ *   Call captureBaseline() once after the camera settles into tracking mode.
  */
 export class IRDetector {
   private config: DetectionConfig;
@@ -49,40 +49,44 @@ export class IRDetector {
   private ctx: OffscreenCanvasRenderingContext2D;
 
   // Pre-allocated frame buffers — reused every frame to avoid GC pressure at 120fps.
-  // bright: max(R,G,B) per pixel. visited: BFS flood-fill marker (zeroed each findBlobs call).
+  // bright: max(R,G,B) per pixel (or delta above baseline in delta mode).
+  // visited: BFS flood-fill marker (zeroed each findBlobs call).
   private readonly brightBuf: Uint8Array;
   private readonly visitedBuf: Uint8Array;
+
+  // Baseline subtraction (delta mode).
+  // Per-pixel max brightness captured while no laser is present.
+  // In delta mode brightBuf[i] = max(0, raw[i] - baseline[i]).
+  private baselineBuf: Uint8Array | null = null;
+  // How many delta-brightness units above baseline a pixel must be to count as bright.
+  // Lower = more sensitive (catches faint lasers). Too low = noise triggers shots.
+  private readonly baselineDelta = 8;
 
   // Blob state
   private previousBlobs: Blob[] = [];
 
   // Hot pixel rejection — numeric keys to avoid string allocation in the hot path.
-  // Key encoding: Math.round(cx/grid) * 65536 + Math.round(cy/grid).
-  // Grid quantises adjacent positions into the same bucket (8px processing-space cells).
-  private readonly hotPixelGrid = 8;       // px — quantization for position grouping
-  private readonly hotPixelLimit = 90;     // frames before masking (~0.75s at 120fps)
-  private readonly hotPixelExpiry = 8000;  // ms before unmasking
+  private readonly hotPixelGrid = 8;
+  private readonly hotPixelLimit = 90;
+  private readonly hotPixelExpiry = 8000;
   private persistentCount: Map<number, number> = new Map();
   private hotPixels: Set<number> = new Set();
   private hotPixelTimestamps: Map<number, number> = new Map();
-  private readonly seenKeys: Set<number> = new Set(); // reused each frame — avoids per-frame Set allocation
+  private readonly seenKeys: Set<number> = new Set();
 
   // ROI — only scan within projected screen area
   private roi: { x: number; y: number; w: number; h: number } | null = null;
 
-  // Shot cooldown — from config.shotCooldown (ms). Prevents duplicate detections from
-  // a single trigger pull. Use a lower value for speed drills with rapid fire.
+  // Shot cooldown — prevents duplicate detections from a single trigger pull.
   private lastShotTime = 0;
 
-  // ThresholdBump — auto-adjusts the working threshold when too many or too few
-  // blobs are detected. Replicates SLDriver's "ThresholdBump" parameter.
-  // currentThreshold starts at config.trackingThreshold and drifts up/down.
+  // ThresholdBump — auto-adjusts threshold in absolute mode only.
   private currentThreshold: number = 220;
-  private readonly blobCountWindow = 30;       // frames to average over
-  private blobCountHistory: number[] = [];      // rolling blob count per frame
-  private blobCountSum = 0;                     // running sum — avoids O(n) reduce each frame
-  private readonly tooManyBlobsLimit = 4;      // avg blobs above this → bump up
-  private readonly tooFewBlobsFrames = 90;     // consecutive zero-blob frames → bump down
+  private readonly blobCountWindow = 30;
+  private blobCountHistory: number[] = [];
+  private blobCountSum = 0;
+  private readonly tooManyBlobsLimit = 4;
+  private readonly tooFewBlobsFrames = 90;
   private zeroBlobStreak = 0;
 
   // Logging
@@ -92,7 +96,6 @@ export class IRDetector {
   constructor(config: DetectionConfig, width: number, height: number) {
     this.config = config;
 
-    // Downscale to ~480p for processing speed
     const maxDim = 480;
     if (height > maxDim) {
       const scale = maxDim / height;
@@ -110,7 +113,6 @@ export class IRDetector {
 
     this.currentThreshold = config.trackingThreshold;
 
-    // Allocate frame buffers once — reused every frame to avoid GC at 120fps
     const pixelCount = this.processWidth * this.processHeight;
     this.brightBuf = new Uint8Array(pixelCount);
     this.visitedBuf = new Uint8Array(pixelCount);
@@ -118,13 +120,16 @@ export class IRDetector {
 
   updateConfig(config: Partial<DetectionConfig>) {
     this.config = { ...this.config, ...config };
-    // Re-anchor currentThreshold if the user manually changed trackingThreshold in settings
-    if (config.trackingThreshold !== undefined) {
+    if (config.trackingThreshold !== undefined && !this.baselineBuf) {
       this.currentThreshold = config.trackingThreshold;
     }
   }
 
-  getCurrentThreshold(): number { return this.currentThreshold; }
+  getCurrentThreshold(): number {
+    return this.baselineBuf ? this.baselineDelta : this.currentThreshold;
+  }
+
+  hasBaseline(): boolean { return this.baselineBuf !== null; }
 
   setROI(roi: { x: number; y: number; w: number; h: number } | null) {
     if (roi) {
@@ -140,6 +145,78 @@ export class IRDetector {
     }
   }
 
+  /**
+   * Capture a per-pixel background model by sampling frameCount frames without
+   * the laser present. Switches the detector into delta mode: subsequent frames
+   * measure brightness ABOVE this baseline, making the laser visible even when
+   * the projected image is as bright as the laser in absolute terms.
+   *
+   * Call after camera preset is applied and has settled (typically 800ms).
+   * Detection must be paused (isActive=false) during capture so this runs cleanly.
+   */
+  async captureBaseline(videoElement: HTMLVideoElement, frameCount = 30): Promise<void> {
+    const w = this.processWidth;
+    const h = this.processHeight;
+    const pixelCount = w * h;
+    const baseline = new Uint8Array(pixelCount);
+
+    console.log(`[IRDetector] Capturing baseline (${frameCount} frames)…`);
+    for (let f = 0; f < frameCount; f++) {
+      await new Promise<void>(r => setTimeout(r, 16));
+      if (videoElement.readyState < videoElement.HAVE_CURRENT_DATA) continue;
+      this.ctx.drawImage(videoElement, 0, 0, w, h);
+      const { data } = this.ctx.getImageData(0, 0, w, h);
+      for (let i = 0; i < pixelCount; i++) {
+        const idx = i * 4;
+        const b = Math.max(data[idx], data[idx + 1], data[idx + 2]);
+        if (b > baseline[i]) baseline[i] = b;
+      }
+    }
+
+    this.baselineBuf = baseline;
+
+    // Compute a summary for the log
+    let baselineMax = 0;
+    let baselineSum = 0;
+    for (let i = 0; i < pixelCount; i++) {
+      if (baseline[i] > baselineMax) baselineMax = baseline[i];
+      baselineSum += baseline[i];
+    }
+    const baselineMean = Math.round(baselineSum / pixelCount);
+
+    // Reset all detection state — previous absolute-mode blobs are meaningless in delta mode
+    this.previousBlobs = [];
+    this.hotPixels.clear();
+    this.persistentCount.clear();
+    this.hotPixelTimestamps.clear();
+    this.seenKeys.clear();
+    this.lastShotTime = 0;
+    this.blobCountHistory = [];
+    this.blobCountSum = 0;
+    this.zeroBlobStreak = 0;
+
+    console.log(
+      `[IRDetector] Baseline captured — delta mode active. ` +
+      `baselineMean=${baselineMean} baselineMax=${baselineMax} ` +
+      `detectionDelta=${this.baselineDelta} (laser needs to be >${this.baselineDelta} brighter than background)`,
+    );
+  }
+
+  clearBaseline(): void {
+    this.baselineBuf = null;
+    this.currentThreshold = this.config.trackingThreshold;
+    this.previousBlobs = [];
+    this.hotPixels.clear();
+    this.persistentCount.clear();
+    this.hotPixelTimestamps.clear();
+    this.seenKeys.clear();
+    this.lastShotTime = 0;
+    this.blobCountHistory = [];
+    this.blobCountSum = 0;
+    this.zeroBlobStreak = 0;
+    console.log('[IRDetector] Baseline cleared — absolute mode restored');
+  }
+
   processFrame(videoElement: HTMLVideoElement): DetectionResult {
     const now = performance.now();
     const w = this.processWidth;
@@ -149,12 +226,20 @@ export class IRDetector {
     this.ctx.drawImage(videoElement, 0, 0, w, h);
     const { data } = this.ctx.getImageData(0, 0, w, h);
 
-    // max(R,G,B) brightness into pre-allocated buffer — no GC allocation per frame.
-    // With camera Brightness=-48, the projected scene sits well below
-    // TrackingThreshold=220, so only the laser exceeds it.
+    // Compute max(R,G,B) per pixel
     for (let i = 0; i < pixelCount; i++) {
       const idx = i * 4;
       this.brightBuf[i] = Math.max(data[idx], data[idx + 1], data[idx + 2]);
+    }
+
+    // DELTA MODE: subtract per-pixel baseline so brightBuf now represents
+    // "how much brighter than background" each pixel is. The laser produces a
+    // sudden spike even when the projected image is at the same absolute level.
+    if (this.baselineBuf) {
+      for (let i = 0; i < pixelCount; i++) {
+        const d = this.brightBuf[i] - this.baselineBuf[i];
+        this.brightBuf[i] = d > 0 ? d : 0;
+      }
     }
 
     const scanX0 = this.roi ? Math.max(0, this.roi.x) : 0;
@@ -162,25 +247,21 @@ export class IRDetector {
     const scanX1 = this.roi ? Math.min(w, this.roi.x + this.roi.w) : w;
     const scanY1 = this.roi ? Math.min(h, this.roi.y + this.roi.h) : h;
 
-    // Use the auto-adjusted threshold (ThresholdBump may have shifted it)
-    const threshold = this.currentThreshold;
+    // In delta mode use fixed baselineDelta; in absolute mode use ThresholdBump value.
+    const threshold = this.baselineBuf ? this.baselineDelta : this.currentThreshold;
+    const mode = this.baselineBuf ? 'delta' : 'absolute';
 
-    // Find all blobs above threshold in this frame
     const blobs = this.findBlobs(threshold, scanX0, scanY0, scanX1, scanY1, w);
 
-    // Update hot pixel tracking (expire old, count persistence)
     this.updateHotPixels(blobs, now);
-
-    // Remove hot pixel blobs — they're sensor defects, not laser hits
     const activeBlobs = blobs.filter(b => !this.isHotPixel(b));
 
-    // ── ThresholdBump (SLDriver: "ThresholdBump") ──
-    // Track rolling blob count. Too many active blobs = threshold too low
-    // (camera not dark enough, or projector bleeding through). Bump up.
-    // Zero blobs for a long time = threshold too high. Bump down toward base.
-    this.applyThresholdBump(activeBlobs.length);
+    // ThresholdBump only applies in absolute mode — delta mode uses a fixed threshold.
+    if (!this.baselineBuf) {
+      this.applyThresholdBump(activeBlobs.length);
+    }
 
-    // Periodic diagnostic log
+    // ── Diagnostic logging ──────────────────────────────────────────────────────
     this.frameCount++;
     if (now - this.lastLogTime > 2000) {
       let rawPeak = 0;
@@ -190,12 +271,38 @@ export class IRDetector {
           if (v > rawPeak) rawPeak = v;
         }
       }
-      console.log(`[IRDetector] frame=${this.frameCount} rawPeak=${rawPeak} threshold=${threshold} blobs=${blobs.length} active=${activeBlobs.length} hotPixels=${this.hotPixels.size}`);
+      const cooldownRemaining = Math.max(0, this.config.shotCooldown - (now - this.lastShotTime));
+      console.log(
+        `[IRDetector] mode=${mode} frames=${this.frameCount} | ` +
+        `rawPeak=${rawPeak} threshold=${threshold} | ` +
+        `blobs=${blobs.length} active=${activeBlobs.length} | ` +
+        `prevBlobs=${this.previousBlobs.length} hotPixels=${this.hotPixels.size} | ` +
+        `cooldownLeft=${Math.round(cooldownRemaining)}ms`,
+      );
       this.lastLogTime = now;
       this.frameCount = 0;
     }
 
-    // Detect new blobs (shots)
+    // Per-blob log when blobs exist — fires every frame that has active blobs.
+    // Check the console immediately after pulling the trigger.
+    if (activeBlobs.length > 0) {
+      const cooldownActive = (now - this.lastShotTime) <= this.config.shotCooldown;
+      for (const blob of activeBlobs) {
+        const passesNew = this.isNewBlob(blob);
+        const closestPrev = this.previousBlobs.reduce((best, p) => {
+          const d = Math.hypot(blob.cx - p.cx, blob.cy - p.cy);
+          return d < best ? d : best;
+        }, Infinity);
+        console.log(
+          `[IRDetector] BLOB cx=${Math.round(blob.cx)} cy=${Math.round(blob.cy)} ` +
+          `area=${blob.area} maxB=${blob.maxBrightness}(>${threshold}) ` +
+          `isNew=${passesNew} closestPrevDist=${closestPrev === Infinity ? 'none' : Math.round(closestPrev)}px | ` +
+          `cooldown=${cooldownActive ? `BLOCKING(${Math.round(this.config.shotCooldown - (now - this.lastShotTime))}ms left)` : 'ok'}`,
+        );
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────────
+
     let shotDetected = false;
     let shotPosition: Point2D | null = null;
     let peakBrightness = 0;
@@ -204,28 +311,25 @@ export class IRDetector {
     if (now - this.lastShotTime > cooldown) {
       for (const blob of activeBlobs) {
         if (this.isNewBlob(blob)) {
-          // Blob appeared from nowhere this frame = laser flash
           if (blob.maxBrightness > peakBrightness) {
             peakBrightness = blob.maxBrightness;
-            shotPosition = {
-              x: blob.cx * this.scaleX,
-              y: blob.cy * this.scaleY,
-            };
+            shotPosition = { x: blob.cx * this.scaleX, y: blob.cy * this.scaleY };
             shotDetected = true;
           }
         }
       }
-
       if (shotDetected) {
         this.lastShotTime = now;
-        console.log(`[IRDetector] SHOT: brightness=${peakBrightness} pos=(${Math.round(shotPosition!.x)},${Math.round(shotPosition!.y)})`);
+        console.log(
+          `[IRDetector] SHOT (${mode}): delta=${peakBrightness} ` +
+          `pos=(${Math.round(shotPosition!.x)},${Math.round(shotPosition!.y)})`,
+        );
       }
     }
 
-    // Update previous blobs for next frame's new-blob comparison
     this.previousBlobs = activeBlobs;
 
-    // Live cursor: brightest active blob position (for aiming aid, not shots)
+    // Live cursor: brightest active blob (aiming aid)
     let cursorPosition: Point2D | null = null;
     let cursorBrightness = 0;
     for (const blob of activeBlobs) {
@@ -241,17 +345,17 @@ export class IRDetector {
       shotDetected,
       timestamp: now,
       stats: {
-        threshold: this.currentThreshold,
+        threshold,
         blobCount: activeBlobs.length,
         hotPixelCount: this.hotPixels.size,
+        mode,
       },
     };
   }
 
   /**
-   * BFS flood fill — finds all groups of connected pixels above threshold.
-   * 4-connectivity (faster than 8, sufficient for compact laser blobs).
-   * Uses pre-allocated visitedBuf — zeroed only over the scan region, not the full buffer.
+   * BFS flood fill — finds all pixel groups above threshold.
+   * In delta mode the threshold and minBrightness are the baselineDelta value.
    */
   private findBlobs(
     threshold: number,
@@ -260,9 +364,9 @@ export class IRDetector {
   ): Blob[] {
     const bright = this.brightBuf;
     const visited = this.visitedBuf;
-    const minBrightness = this.config.minBrightness;
+    // In delta mode config.minBrightness (220) would filter everything — use threshold instead.
+    const minBrightness = this.baselineBuf ? threshold : this.config.minBrightness;
 
-    // Zero only the scan region — avoids clearing 300K bytes when ROI is a small patch
     if (this.roi) {
       for (let y = y0; y < y1; y++) visited.fill(0, y * w + x0, y * w + x1);
     } else {
@@ -276,7 +380,6 @@ export class IRDetector {
         const i = y * w + x;
         if (visited[i] || bright[i] < threshold) continue;
 
-        // Iterative BFS — avoids call-stack overflow on unexpectedly large blobs
         const queue: number[] = [i];
         visited[i] = 1;
         let wSumX = 0, wSumY = 0, wSum = 0, area = 0, maxB = 0;
@@ -299,9 +402,6 @@ export class IRDetector {
           if (py < y1-1) { const ni = idx + w; if (!visited[ni] && bright[ni] >= threshold) { visited[ni] = 1; queue.push(ni); } }
         }
 
-        // Laser dot at 480p = 1–150 px area. Larger = background noise or sensor artifact.
-        // minBrightness filters blobs that barely cleared the threshold — likely noise,
-        // not a laser which typically reads 240–255 even with camera darkening.
         if (area >= 1 && area <= 300 && wSum > 0 && maxB >= minBrightness) {
           blobs.push({ cx: wSumX / wSum, cy: wSumY / wSum, area, maxBrightness: maxB });
         }
@@ -311,15 +411,6 @@ export class IRDetector {
     return blobs;
   }
 
-  /**
-   * Returns true if blob was NOT present in the previous frame.
-   * Uses ShotConnectedDistance from config (SLDriver: "ShotConnectedDistance").
-   *
-   * config.shotConnectedDistance is in CAMERA-resolution pixels (same space as SLDriver).
-   * Dividing by scaleX converts it to processing-resolution pixels for comparison.
-   * scaleX === scaleY here (aspect-ratio-preserving downscale), so one factor suffices.
-   * Squared-distance comparison avoids Math.sqrt on every blob pair.
-   */
   private isNewBlob(blob: Blob): boolean {
     const dist = this.config.shotConnectedDistance / this.scaleX;
     const distSq = dist * dist;
@@ -332,16 +423,7 @@ export class IRDetector {
   }
 
   /**
-   * ThresholdBump — SLDriver: "ThresholdBump" parameter.
-   *
-   * Too many active blobs → camera settings didn't darken the scene enough,
-   * projector image is bleeding through. Bump threshold up so only the laser
-   * (much brighter) still registers.
-   *
-   * Zero blobs for many consecutive frames → threshold may have drifted too high
-   * or camera is too dark. Nudge back toward the configured base value.
-   *
-   * bumpStep=0 disables auto-adjustment entirely.
+   * ThresholdBump — absolute mode only. Not used in delta mode.
    */
   private applyThresholdBump(activeBlobCount: number) {
     const bumpStep = this.config.thresholdBumpStep;
@@ -350,30 +432,26 @@ export class IRDetector {
     const baseThreshold = this.config.trackingThreshold;
     const maxThreshold = Math.min(254, baseThreshold + 40);
 
-    // Rolling blob-count with running sum — O(1) average, no reduce() each frame
     this.blobCountHistory.push(activeBlobCount);
     this.blobCountSum += activeBlobCount;
     if (this.blobCountHistory.length > this.blobCountWindow) {
       this.blobCountSum -= this.blobCountHistory.shift()!;
     }
 
-    // Need a full window before acting
     if (this.blobCountHistory.length < this.blobCountWindow) return;
 
     const avgBlobs = this.blobCountSum / this.blobCountHistory.length;
 
     if (avgBlobs > this.tooManyBlobsLimit) {
-      // Too many false positives — raise threshold
       const prev = this.currentThreshold;
       this.currentThreshold = Math.min(maxThreshold, this.currentThreshold + bumpStep);
       if (this.currentThreshold !== prev) {
         console.log(`[IRDetector] ThresholdBump UP: ${prev} → ${this.currentThreshold} (avg blobs=${avgBlobs.toFixed(1)})`);
         this.blobCountSum = 0;
-        this.blobCountHistory = []; // reset window after bump
+        this.blobCountHistory = [];
       }
     }
 
-    // Zero-blob streak tracking (separate from rolling average)
     if (activeBlobCount === 0) {
       this.zeroBlobStreak++;
       if (this.zeroBlobStreak >= this.tooFewBlobsFrames && this.currentThreshold > baseThreshold) {
@@ -390,7 +468,6 @@ export class IRDetector {
   }
 
   private updateHotPixels(blobs: Blob[], now: number) {
-    // Expire old hot pixels
     for (const [key, ts] of this.hotPixelTimestamps) {
       if (now - ts > this.hotPixelExpiry) {
         this.hotPixels.delete(key);
@@ -399,7 +476,6 @@ export class IRDetector {
       }
     }
 
-    // Reuse seenKeys set — clear is much cheaper than allocating new Set each frame
     this.seenKeys.clear();
     for (const blob of blobs) {
       const key = this.quantize(blob.cx, blob.cy);
@@ -413,7 +489,6 @@ export class IRDetector {
       }
     }
 
-    // Decay counts for positions not seen this frame
     for (const [key, count] of this.persistentCount) {
       if (!this.seenKeys.has(key)) {
         const next = count - 3;
@@ -427,9 +502,6 @@ export class IRDetector {
     return this.hotPixels.has(this.quantize(blob.cx, blob.cy));
   }
 
-  // Numeric key: pack two bucket indices into one number — avoids string allocation
-  // in the hottest path. Buckets are at most ~107×60 for 853×480 processing resolution,
-  // well within the 65536 column capacity of the encoding.
   private quantize(x: number, y: number): number {
     const g = this.hotPixelGrid;
     return Math.round(x / g) * 65536 + Math.round(y / g);
@@ -446,9 +518,11 @@ export class IRDetector {
     this.blobCountHistory = [];
     this.blobCountSum = 0;
     this.zeroBlobStreak = 0;
+    // Baseline is preserved across resets — no need to recapture on pause/resume
   }
 
   fullReset() {
     this.reset();
+    this.clearBaseline();
   }
 }
